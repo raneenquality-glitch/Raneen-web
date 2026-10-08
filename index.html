@@ -166,6 +166,8 @@ const fmtD=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${p2(d.getMonth(
 const f1=n=>(Math.round(n*10)/10).toFixed(1);
 const pctTxt=v=>v==null?'—':f1(v)+'%';
 const sc=p=>p==null?'':p>=90?'ok':p>=75?'mid':'bad';
+const VISIT={'1':'الزيارة الأولى','2':'الزيارة الثانية'};
+const visitOf=r=>VISIT[String(((r.data||{}).inspection||{}).visitNumber||'')]||'';
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('id'+Date.now()+Math.random().toString(16).slice(2));
 
 let S=JSON.parse(localStorage.getItem('rq_sess')||'null'), ME=null, REPORTS=[], PROFILES=[], NAMES={};
@@ -267,7 +269,7 @@ function reportsView(){
   return `<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="${FILTER.pending?'':'alt'}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="${FILTER.pending?'alt':''}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
-     <div class="muted">${esc(r.report_number)} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(NAMES[r.inspector_id]||'')}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
+     <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(NAMES[r.inspector_id]||'')}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
 }
 function reportView(){
   const r=REPORTS.find(x=>x.id===view.id); if(!r) return '<p>التقرير مش موجود</p>';
@@ -277,13 +279,13 @@ function reportView(){
   const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
     h+=`<div class="card viol"><b>${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><div class="muted">${esc(v.category?v.category.name:'')}</div>
-    ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
+    ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
   <div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(b.branch)}</h2><span class="chip st-${r.status}">${ST_SHORT[r.status]}</span></div>
-    <p>رقم التقرير: ${esc(r.report_number)}<br>تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p></div>
+    <p>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p></div>
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
   <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
@@ -490,6 +492,7 @@ const ACT={
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
   retForm:()=>modal(`<h3>سبب الإعادة</h3><textarea id="rnote" rows="3" placeholder="اكتب السبب (إجباري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   doReturn:()=>doReturn(), print:()=>window.print(), csv:()=>csvReport(), zip:()=>doZip(),
+  playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),
   branchForm:d=>branchForm(d.id), saveBranch:d=>saveBranch(d.id), delBranch:d=>delBranch(d.id),

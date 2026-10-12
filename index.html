@@ -2,7 +2,9 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#c8102e">
+<meta name="description" content="لوحة إدارة الجودة بشركة رنين لمراجعة التقارير وإدارة الفروع والضوابط.">
 <title>رنين — إدارة الجودة</title>
 <style>
 :root{--red:#c8102e;--ink:#222;--gray:#6b6b6b;--bg:#f6f6f7;--card:#fff;--line:#e4e4e7;--ok:#1d7a4d;--mid:#e08a00;--bad:#c8102e}
@@ -22,7 +24,7 @@ button,.btn{font:inherit;border-radius:8px;border:1px solid var(--red);backgroun
 button.alt{background:#fff;color:var(--red)}button.danger{background:#fff;color:#b00020;border-color:#b00020}button:disabled{opacity:.5}
 input,select,textarea{font:inherit;width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;margin:4px 0 10px;background:#fff}
 input[type=checkbox]{width:auto;margin:0 0 0 8px}label{font-size:13px;color:var(--gray)}label.chk{display:flex;align-items:center;gap:6px;color:var(--ink);font-size:15px;margin:6px 0}
-table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}th{background:#fdecef;color:var(--red)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[data-act]:focus-visible{outline:3px solid #246bfd;outline-offset:2px}button:disabled{cursor:wait}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}th{background:#fdecef;color:var(--red)}
 .ok{color:var(--ok)}.mid{color:var(--mid)}.bad{color:var(--bad)}.big{font-size:26px;font-weight:700}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{text-align:center}
 .unitbar{background:#222;color:#fff;border-radius:6px;padding:6px 10px;margin:12px 0 6px;font-weight:600}
@@ -34,7 +36,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1p
 .modal img.zoom{max-width:100%;border-radius:8px}.err{color:#b00020;margin:6px 0}.msg{color:var(--ok);font-weight:600;margin:6px 0}
 #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;z-index:99;display:none;max-width:90%}
 .login{max-width:380px;margin:12vh auto;padding:0 16px}.badge{font-weight:700}
-@media print{header.top,nav.tabs,.noprint,button{display:none!important}body{background:#fff}.card{break-inside:avoid;border-color:#ccc}.thumb{width:150px;height:112px}}
+@media (max-width:640px){
+  body{font-size:14px}main{padding:10px}.card{padding:11px;border-radius:10px}
+  header.top{padding:10px}header.top h1{font-size:16px;flex-basis:100%}header.top button{flex:1}
+  nav.tabs{padding:8px 10px}.kpis{grid-template-columns:1fr 1fr;gap:7px}
+  .big{font-size:22px}.row{gap:7px}table{display:block;overflow-x:auto;white-space:nowrap}
+  .thumb{width:92px;height:72px}button,.btn{padding:8px 10px}
+}
+@media print{header.top,nav.tabs,.noprint,button{display:none!important}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
 </style>
 </head>
@@ -113,11 +122,11 @@ function buildReport(r, names){
     if ((k.maxScore||0)<=0){
       const key=f.unitId+'|'+k.id;
       const e=censusMap[key]=censusMap[key]||{unitId:f.unitId,unitName:u?u.name:'',categoryName:cat?cat.name:'',controlText:k.text,order:[unitOrder[f.unitId]||0,cat?cat.sortOrder:0,k.sortOrder||0],parts:[]};
-      e.parts.push({g:g?g.sortOrder||0:0,n:f.violationCount});
+      e.parts.push({g:g?g.sortOrder||0:0,n:Number(f.quantity ?? f.violationCount)||0,unitPrice:Number(f.unitPrice ?? f.unit_price ?? 0)||0,total:Number(f.total ?? f.lineTotal ?? ((Number(f.quantity ?? f.violationCount)||0)*(Number(f.unitPrice ?? f.unit_price ?? 0)||0)))||0});
     } else viol.push({finding:f,control:k,category:cat,unit:u,group:g,photos:photosBy[f.id]||[]});
   });
   viol.sort((a,b)=>(unitOrder[a.unit&&a.unit.id]||0)-(unitOrder[b.unit&&b.unit.id]||0) || (a.category?a.category.sortOrder:0)-(b.category?b.category.sortOrder:0) || (a.control.sortOrder||0)-(b.control.sortOrder||0));
-  const census=Object.values(censusMap).sort((a,b)=>a.order[0]-b.order[0]||a.order[1]-b.order[1]||a.order[2]-b.order[2]).map(e=>{ e.parts.sort((x,y)=>x.g-y.g); e.nums=e.parts.map(p=>p.n); e.total=e.nums.reduce((x,y)=>x+y,0); e.expr=e.nums.length>1? '('+e.nums.join('+')+') = '+e.total : String(e.total); return e; });
+  const census=Object.values(censusMap).sort((a,b)=>a.order[0]-b.order[0]||a.order[1]-b.order[1]||a.order[2]-b.order[2]).map(e=>{ e.parts.sort((x,y)=>x.g-y.g); e.nums=e.parts.map(p=>p.n); e.total=e.nums.reduce((x,y)=>x+y,0); e.unitPrice=e.parts.length && e.parts.every(p=>p.unitPrice===e.parts[0].unitPrice)?e.parts[0].unitPrice:null; e.amount=e.parts.reduce((sum,p)=>sum+(p.total||p.n*p.unitPrice),0); e.hasPrice=e.parts.some(p=>p.unitPrice>0||p.total>0); e.expr=e.nums.length>1? '('+e.nums.join('+')+') = '+e.total : String(e.total); return e; });
   const missing=viol.filter(v=>v.control.photoRequired && !v.photos.length).length;
   return {
     r, d, lines, viol, census, missing,
@@ -162,8 +171,9 @@ const ACT_AR={SUBMITTED:"إرسال التقرير",RESUBMITTED:"إعادة إر
 const el=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const p2=n=>String(n).padStart(2,'0');
-const fmtD=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`};
+const fmtD=ms=>{const d=new Date(ms);if(!Number.isFinite(d.getTime()))return 'غير محدد';return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`};
 const f1=n=>(Math.round(n*10)/10).toFixed(1);
+function money(n){return Number(n||0).toLocaleString('ar-EG',{maximumFractionDigits:2})+' ج.م'}
 const pctTxt=v=>v==null?'—':f1(v)+'%';
 const sc=p=>p==null?'':p>=90?'ok':p>=75?'mid':'bad';
 const VISIT={'1':'الزيارة الأولى','2':'الزيارة الثانية'};
@@ -280,7 +290,7 @@ function reportView(){
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
     h+=`<div class="card viol"><b>${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><div class="muted">${esc(v.category?v.category.name:'')}</div>
     ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
-  let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)}</div></div><b>${c.expr}</b></div>`})}
+  let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)}${c.hasPrice?` · سعر الوحدة: ${money(c.unitPrice)} · الإجمالي: ${money(c.amount)}`:''}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
@@ -350,12 +360,12 @@ async function doFinal(){
   }catch(e){ el('rerr').textContent=errTxt(e); if(btn)btn.disabled=false }
 }
 function csvReport(){
-  const b=view.b,q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"',rows=[];
+  const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
   rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات']);
   b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount]));
   rows.push([],['القسم','الكاتجري','رقم البند','البند','المجموعة','عدد الصور']);
   b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.control.sortOrder,v.control.text,v.group?v.group.name:'',v.photos.length]));
-  if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','المجموع']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total]))}
+  if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.hasPrice?c.amount:'']))}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }
 
@@ -406,6 +416,7 @@ async function saveBranch(id){
   if(await commit()){closeModal();render()}
 }
 async function delBranch(id){
+  const target=byId(C.branches,id);if(!target||!confirm(`تأكيد حذف الفرع «${target.name}»؟`))return;
   if(REPORTS.some(r=>r.branch_id===id)){el('ferr').textContent='الفرع عليه تقارير — عطّله بدل الحذف';return}
   C.branches=C.branches.filter(b=>b.id!==id); if(await commit()){closeModal();render()}
 }
@@ -441,6 +452,7 @@ async function saveUnit(id){
   if(await commit()){closeModal();render()}
 }
 async function hideUnit(id){
+  const target=byId(C.units,id); if(!target||!confirm(`تأكيد تعطيل القسم «${target.name}» وكل الكاتجري والمجموعات والضوابط التابعة له؟`))return;
   const cids=new Set(C.cats.filter(c=>c.unitId===id).map(c=>c.id));
   byId(C.units,id).isActive=false; C.cats.filter(c=>c.unitId===id).forEach(c=>c.isActive=false); C.groups.filter(g=>g.unitId===id).forEach(g=>g.isActive=false); C.controls.filter(k=>cids.has(k.categoryId)).forEach(k=>k.isActive=false);
   if(await commit()){closeModal();view={tab:'catalog'};render()}
@@ -454,11 +466,11 @@ const catForm=id=>nameForm('Cat',id,id?'تعديل كاتجري':'إضافة ك�
 async function saveGroup(id){const name=el('f_name').value.trim();if(!name){el('ferr').textContent='اكتب الاسم';return}
   if(id) byId(C.groups,id).name=name; else C.groups.push({id:uid(),unitId:view.unitId,name,sortOrder:maxSort(C.groups.filter(g=>g.unitId===view.unitId))+1,isActive:true});
   if(await commit()){closeModal();render()}}
-async function hideGroup(id){byId(C.groups,id).isActive=false;if(await commit()){closeModal();render()}}
+async function hideGroup(id){const g=byId(C.groups,id);if(!g||!confirm(`تأكيد تعطيل المجموعة «${g.name}»؟`))return;g.isActive=false;if(await commit()){closeModal();render()}}
 async function saveCat(id){const name=el('f_name').value.trim();if(!name){el('ferr').textContent='اكتب الاسم';return}
   if(id) byId(C.cats,id).name=name; else C.cats.push({id:uid(),unitId:view.unitId,name,sortOrder:maxSort(C.cats.filter(c=>c.unitId===view.unitId))+1,isActive:true});
   if(await commit()){closeModal();render()}}
-async function hideCat(id){byId(C.cats,id).isActive=false;C.controls.filter(k=>k.categoryId===id).forEach(k=>k.isActive=false);if(await commit()){closeModal();render()}}
+async function hideCat(id){const c=byId(C.cats,id);if(!c||!confirm(`تأكيد تعطيل الكاتجري «${c.name}» وكل الضوابط التابعة لها؟`))return;c.isActive=false;C.controls.filter(k=>k.categoryId===id).forEach(k=>k.isActive=false);if(await commit()){closeModal();render()}}
 function ctlForm(id,catId){
   const unit=view.unitId, cats=C.cats.filter(c=>c.unitId===unit&&c.isActive), hasG=C.groups.some(g=>g.unitId===unit&&g.isActive);
   const k=id?byId(C.controls,id):{categoryId:catId,text:'',hint:'',maxScore:'',penaltyPerViolation:1,photoRequired:true,perGroup:false};
@@ -466,7 +478,7 @@ function ctlForm(id,catId){
   modal(`<h3>${id?'تعديل ضابط':'إضافة ضابط'}</h3><label>الكاتجري</label><select id="f_cat">${cats.map(c=>`<option value="${esc(c.id)}" ${k.categoryId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
    <label>نص الضابط</label><textarea id="f_text" rows="2">${esc(k.text)}</textarea><label>ملاحظة للمراقب (اختياري)</label><input id="f_hint" value="${esc(k.hint||'')}">
    ${hasG?`<label class="chk"><input type="checkbox" id="f_census" ${census?'checked':''}> ضابط حصر (عدد من غير درجة)</label>`:''}
-   <label>الوزن (الدرجة الكاملة)</label><input id="f_w" inputmode="decimal" value="${census?'':esc(k.maxScore)}"><label>الخصم لكل مخالفة (1 عادي، 2 مضاعف)</label><input id="f_p" inputmode="decimal" value="${esc(k.penaltyPerViolation)}">
+   <label>الوزن (الدرجة الكاملة)</label><input id="f_w" inputmode="decimal" value="${census?'':esc(k.maxScore)}"><label>الخصم لكل مخالفة (من 1 إلى 5 درجات)</label><select id="f_p">${[1,2,3,4,5].map(n=>`<option value="${n}" ${Number(k.penaltyPerViolation||1)===n?'selected':''}>${n} درجة</option>`).join('')}</select>
    <label class="chk"><input type="checkbox" id="f_photo" ${k.photoRequired?'checked':''}> يتطلب صورة عند المخالفة</label>${hasG?`<label class="chk"><input type="checkbox" id="f_pg" ${k.perGroup?'checked':''}> بيتسجل على كل مجموعة لوحدها</label>`:''}
    <div class="err" id="ferr"></div><button data-act="saveCtl" data-id="${esc(id||'')}">حفظ</button> <button class="alt" data-act="close">إلغاء</button> ${id?`<button class="danger" data-act="hideCtl" data-id="${esc(id)}">حذف</button>`:''}`);
 }
@@ -481,7 +493,7 @@ async function saveCtl(id){
   if(id) Object.assign(byId(C.controls,id),f); else C.controls.push(Object.assign({id:uid(),sortOrder:maxSort(unitControls(view.unitId,false))+1,isActive:true},f));
   if(await commit()){closeModal();render()}
 }
-async function hideCtl(id){byId(C.controls,id).isActive=false;if(await commit()){closeModal();render()}}
+async function hideCtl(id){const k=byId(C.controls,id);if(!k||!confirm(`تأكيد تعطيل الضابط «${k.text}»؟`))return;k.isActive=false;if(await commit()){closeModal();render()}}
 
 // ---------- الأحداث ----------
 const ACT={
@@ -507,6 +519,7 @@ document.addEventListener('input',e=>{
   if(e.target.id==='uq'){view.uq=e.target.value;const pos=e.target.selectionStart;render();const q=el('uq');q.focus();q.setSelectionRange(pos,pos)}
 });
 el('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!el('modal').classList.contains('hidden'))closeModal()});
 (async()=>{ if(S){try{await startSession()}catch(e){logoutLocal()}} else renderLogin() })();
 
 </script>

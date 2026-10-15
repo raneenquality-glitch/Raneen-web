@@ -101,7 +101,11 @@ function computeUnit(unit, findings){
   controls.forEach(k=>{
     planned+=k.maxScore||0;
     const v=total[k.id]||0;
-    if ((k.maxScore||0)>0 && v>0) loss+=Math.min(k.maxScore, v*(k.penaltyPerViolation||1));
+    // These controls store the selected deduction directly, not a count to multiply by the default penalty.
+    const servicePartIds = ["services_admin_i5","services_admin_i6","services_admin_i7","services_admin_i8","services_admin_i9"];
+    const directDeduction = ["security_i14","cameras_i11","maintenance_i3",...servicePartIds].includes(k.id);
+    const serviceDeduction = servicePartIds.includes(k.id) ? (v===1||v===2 ? v : (v===4||v===8 ? k.maxScore/2 : v===12||v===3 ? k.maxScore : v)) : v;
+    if ((k.maxScore||0)>0 && v>0) loss+=Math.min(k.maxScore, directDeduction ? serviceDeduction : v*(k.penaltyPerViolation||1));
   });
   const actual=planned-loss;
   const ids=new Set(controls.map(k=>k.id));
@@ -122,11 +126,27 @@ function buildReport(r, names){
     if ((k.maxScore||0)<=0){
       const key=f.unitId+'|'+k.id;
       const e=censusMap[key]=censusMap[key]||{unitId:f.unitId,unitName:u?u.name:'',categoryName:cat?cat.name:'',controlText:k.text,order:[unitOrder[f.unitId]||0,cat?cat.sortOrder:0,k.sortOrder||0],parts:[]};
-      e.parts.push({g:g?g.sortOrder||0:0,n:Number(f.quantity ?? f.violationCount)||0,unitPrice:Number(f.unitPrice ?? f.unit_price ?? 0)||0,total:Number(f.total ?? f.lineTotal ?? ((Number(f.quantity ?? f.violationCount)||0)*(Number(f.unitPrice ?? f.unit_price ?? 0)||0)))||0});
-    } else viol.push({finding:f,control:k,category:cat,unit:u,group:g,photos:photosBy[f.id]||[]});
+      // يدعم أسماء الحقول المتداولة من إصدارات التطبيق المختلفة، سواء كانت مباشرة أو داخل census/pricing.
+      const meta=(f.census&&typeof f.census==='object')?f.census:((f.pricing&&typeof f.pricing==='object')?f.pricing:{});
+      const firstDefined=(...vals)=>vals.find(v=>v!==undefined&&v!==null&&v!=='');
+      const rawQty=firstDefined(f.quantity,f.qty,f.count,f.cnt,f.violationCount,meta.quantity,meta.qty,meta.count);
+      const rawPrice=firstDefined(f.unitPrice,f.unit_price,f.pricePerUnit,f.price_per_unit,f.unitCost,f.unit_cost,meta.unitPrice,meta.unit_price,meta.pricePerUnit,meta.price_per_unit);
+      const rawTotal=firstDefined(f.total,f.lineTotal,f.line_total,f.amount,meta.total,meta.lineTotal,meta.line_total,meta.amount);
+      const qty=Math.max(0,Number(rawQty)||0), price=rawPrice==null?null:Number(rawPrice);
+      const total=rawTotal==null?(price==null?null:qty*price):Number(rawTotal);
+      e.parts.push({g:g?g.sortOrder||0:0,n:qty,unitPrice:Number.isFinite(price)?price:null,total:Number.isFinite(total)?total:null});
+    } else {
+      const rawCount=Number(f.violationCount)||0;
+      const servicePartIds=["services_admin_i5","services_admin_i6","services_admin_i7","services_admin_i8","services_admin_i9"];
+      const directDeduction=["security_i14","cameras_i11","maintenance_i3",...servicePartIds].includes(k.id);
+      const serviceDeduction=servicePartIds.includes(k.id) ? (rawCount===1||rawCount===2 ? rawCount : (rawCount===4||rawCount===8 ? (Number(k.maxScore)||0)/2 : rawCount===12||rawCount===3 ? Number(k.maxScore)||0 : rawCount)) : rawCount;
+      const deduction=Math.min(Number(k.maxScore)||0, directDeduction ? serviceDeduction : rawCount*(Number(k.penaltyPerViolation)||1));
+      const subparts=k.id==="maintenance_i3" ? [2,5].filter(n=>rawCount===7 || rawCount===n) : servicePartIds.includes(k.id) ? ((rawCount===12||rawCount===3) ? (k.id==="services_admin_i5"?["حريمي","رجالي"]:k.id==="services_admin_i6"?["حريمي","رجالي"]:k.id==="services_admin_i7"?["المدخل","المخرج"]:k.id==="services_admin_i8"?["النظافة","الترتيب"]:["المنطقة المحيطة","الواجهات الزجاجية"]) : (rawCount===4||rawCount===1 ? [k.id==="services_admin_i5"||k.id==="services_admin_i6"?"حريمي":k.id==="services_admin_i7"?"المدخل":k.id==="services_admin_i8"?"النظافة":"المنطقة المحيطة"] : rawCount===8||rawCount===2 ? [k.id==="services_admin_i5"||k.id==="services_admin_i6"?"رجالي":k.id==="services_admin_i7"?"المخرج":k.id==="services_admin_i8"?"الترتيب":"الواجهات الزجاجية"] : [])) : [];
+      viol.push({finding:f,control:k,category:cat,unit:u,group:g,photos:photosBy[f.id]||[],deduction,subparts});
+    }
   });
   viol.sort((a,b)=>(unitOrder[a.unit&&a.unit.id]||0)-(unitOrder[b.unit&&b.unit.id]||0) || (a.category?a.category.sortOrder:0)-(b.category?b.category.sortOrder:0) || (a.control.sortOrder||0)-(b.control.sortOrder||0));
-  const census=Object.values(censusMap).sort((a,b)=>a.order[0]-b.order[0]||a.order[1]-b.order[1]||a.order[2]-b.order[2]).map(e=>{ e.parts.sort((x,y)=>x.g-y.g); e.nums=e.parts.map(p=>p.n); e.total=e.nums.reduce((x,y)=>x+y,0); e.unitPrice=e.parts.length && e.parts.every(p=>p.unitPrice===e.parts[0].unitPrice)?e.parts[0].unitPrice:null; e.amount=e.parts.reduce((sum,p)=>sum+(p.total||p.n*p.unitPrice),0); e.hasPrice=e.parts.some(p=>p.unitPrice>0||p.total>0); e.expr=e.nums.length>1? '('+e.nums.join('+')+') = '+e.total : String(e.total); return e; });
+  const census=Object.values(censusMap).sort((a,b)=>a.order[0]-b.order[0]||a.order[1]-b.order[1]||a.order[2]-b.order[2]).map(e=>{ e.parts.sort((x,y)=>x.g-y.g); e.nums=e.parts.map(p=>p.n); e.total=e.nums.reduce((x,y)=>x+y,0); const priced=e.parts.filter(p=>p.unitPrice!=null); e.unitPrice=priced.length===e.parts.length && e.parts.length && e.parts.every(p=>p.unitPrice===e.parts[0].unitPrice)?e.parts[0].unitPrice:null; e.amount=e.parts.every(p=>p.total!=null)?e.parts.reduce((sum,p)=>sum+p.total,0):(e.parts.every(p=>p.unitPrice!=null)?e.parts.reduce((sum,p)=>sum+p.n*p.unitPrice,0):null); e.hasPrice=e.parts.some(p=>p.unitPrice!=null||p.total!=null); e.priceIncomplete=!e.hasPrice || e.parts.some(p=>p.unitPrice==null&&p.total==null); e.expr=e.nums.length>1? '('+e.nums.join('+')+') = '+e.total : String(e.total); return e; });
   const missing=viol.filter(v=>v.control.photoRequired && !v.photos.length).length;
   return {
     r, d, lines, viol, census, missing,
@@ -173,7 +193,6 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const p2=n=>String(n).padStart(2,'0');
 const fmtD=ms=>{const d=new Date(ms);if(!Number.isFinite(d.getTime()))return 'غير محدد';return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`};
 const f1=n=>(Math.round(n*10)/10).toFixed(1);
-function money(n){return Number(n||0).toLocaleString('ar-EG',{maximumFractionDigits:2})+' ج.م'}
 const pctTxt=v=>v==null?'—':f1(v)+'%';
 const sc=p=>p==null?'':p>=90?'ok':p>=75?'mid':'bad';
 const VISIT={'1':'الزيارة الأولى','2':'الزيارة الثانية'};
@@ -289,8 +308,9 @@ function reportView(){
   const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
     h+=`<div class="card viol"><b>${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><div class="muted">${esc(v.category?v.category.name:'')}</div>
+    <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
     ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
-  let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)}${c.hasPrice?` · سعر الوحدة: ${money(c.unitPrice)} · الإجمالي: ${money(c.amount)}`:''}</div></div><b>${c.expr}</b></div>`})}
+  let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
@@ -365,7 +385,7 @@ function csvReport(){
   b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount]));
   rows.push([],['القسم','الكاتجري','رقم البند','البند','المجموعة','عدد الصور']);
   b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.control.sortOrder,v.control.text,v.group?v.group.name:'',v.photos.length]));
-  if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.hasPrice?c.amount:'']))}
+  if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }
 

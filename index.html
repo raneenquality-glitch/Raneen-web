@@ -3,38 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#c8102e">
+<meta name="theme-color" content="#283593">
 <meta name="description" content="لوحة إدارة الجودة بشركة رنين لمراجعة التقارير وإدارة الفروع والضوابط.">
 <title>رنين — إدارة الجودة</title>
 <style>
-:root{--red:#c8102e;--ink:#222;--gray:#6b6b6b;--bg:#f6f6f7;--card:#fff;--line:#e4e4e7;--ok:#1d7a4d;--mid:#e08a00;--bad:#c8102e}
+:root{--pri:#283593;--pri-d:#1a237e;--pri-l:#e2e6fa;--acc:#f59e0b;--acc-l:#ffefcc;--red:#c62828;--ink:#1b1d2a;--gray:#5a5f7a;--bg:#f5f6fb;--card:#fff;--line:#dadcee;--ok:#1d7a4d;--mid:#c77700;--bad:#c62828}
 *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
-header.top{background:var(--red);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header.top{background:linear-gradient(135deg,var(--pri-d),var(--pri));color:#fff;padding:12px 16px;border-bottom:3px solid var(--acc);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 header.top h1{font-size:18px;margin:0;flex:1}header.top small{opacity:.9}
 nav.tabs{display:flex;gap:6px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
 nav.tabs button{border:1px solid var(--line);background:#fff;border-radius:20px;padding:7px 14px;cursor:pointer;white-space:nowrap;font:inherit}
-nav.tabs button.on{background:var(--red);color:#fff;border-color:var(--red)}
+nav.tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+nav.tabs button{color:var(--pri)}
 main{max-width:1000px;margin:0 auto;padding:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 10px}
-.click{cursor:pointer}.click:hover{border-color:var(--red)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:0 0 10px;box-shadow:0 1px 3px rgba(40,53,147,.06)}
+.click{cursor:pointer}.click:hover{border-color:var(--pri);box-shadow:0 3px 10px rgba(40,53,147,.12)}
 .row{display:flex;gap:10px;align-items:center}.grow{flex:1}.wrap{flex-wrap:wrap}
 .chip{display:inline-block;color:#fff;border-radius:20px;padding:2px 10px;font-size:12px}
 .st-SUBMITTED{background:#1565c0}.st-REVIEWED{background:#6a1b9a}.st-RETURNED{background:#c62828}.st-FINAL_APPROVED{background:#1d7a4d}.st-DRAFT{background:#757575}
-button,.btn{font:inherit;border-radius:8px;border:1px solid var(--red);background:var(--red);color:#fff;padding:8px 14px;cursor:pointer}
-button.alt{background:#fff;color:var(--red)}button.danger{background:#fff;color:#b00020;border-color:#b00020}button:disabled{opacity:.5}
-input,select,textarea{font:inherit;width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;margin:4px 0 10px;background:#fff}
+button,.btn{font:inherit;border-radius:12px;border:1px solid var(--pri);background:var(--pri);color:#fff;padding:9px 16px;cursor:pointer;transition:background .15s}button:hover:not(:disabled){background:var(--pri-d)}
+button.alt{background:#fff;color:var(--pri)}button.alt:hover:not(:disabled){background:var(--pri-l)}button.danger{background:#fff;color:#b00020;border-color:#b00020}button:disabled{opacity:.5}
+input,select,textarea{font:inherit;width:100%;padding:9px 10px;border:1px solid #c5c8e0;border-radius:12px;margin:4px 0 10px;background:#fff}
 input[type=checkbox]{width:auto;margin:0 0 0 8px}label{font-size:13px;color:var(--gray)}label.chk{display:flex;align-items:center;gap:6px;color:var(--ink);font-size:15px;margin:6px 0}
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[data-act]:focus-visible{outline:3px solid #246bfd;outline-offset:2px}button:disabled{cursor:wait}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}th{background:#fdecef;color:var(--red)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[data-act]:focus-visible{outline:3px solid var(--acc);outline-offset:2px}button:disabled{cursor:wait}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}th{background:#fdecef;color:var(--red)}
 .ok{color:var(--ok)}.mid{color:var(--mid)}.bad{color:var(--bad)}.big{font-size:26px;font-weight:700}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{text-align:center}
-.unitbar{background:#222;color:#fff;border-radius:6px;padding:6px 10px;margin:12px 0 6px;font-weight:600}
-.viol{border-right:5px solid var(--red);background:#fff5f5}.muted{color:var(--gray);font-size:13px}
-.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.thumb{width:110px;height:84px;background:#e5e5e5;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:12px;color:#777}
+.unitbar{background:var(--pri);color:#fff;border-radius:10px;padding:6px 10px;margin:12px 0 6px;font-weight:600}
+.viol{border-right:5px solid var(--bad);background:#fff6f6}.muted{color:var(--gray);font-size:13px}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.thumb{width:110px;height:84px;background:#e5e7f2;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:12px;color:#777}
 .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;cursor:zoom-in}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
-.modal.hidden{display:none}.modal .box{background:#fff;border-radius:14px;padding:18px;max-width:560px;width:100%;max-height:90vh;overflow:auto}
+.modal.hidden{display:none}.modal .box{background:#fff;border-radius:20px;padding:18px;max-width:560px;width:100%;max-height:90vh;overflow:auto}
 .modal img.zoom{max-width:100%;border-radius:8px}.err{color:#b00020;margin:6px 0}.msg{color:var(--ok);font-weight:600;margin:6px 0}
-#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;z-index:99;display:none;max-width:90%}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--pri-d);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;display:none;max-width:90%}
 .login{max-width:380px;margin:12vh auto;padding:0 16px}.badge{font-weight:700}
 @media (max-width:640px){
   body{font-size:14px}main{padding:10px}.card{padding:11px;border-radius:10px}
@@ -43,7 +44,30 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .big{font-size:22px}.row{gap:7px}table{display:block;overflow-x:auto;white-space:nowrap}
   .thumb{width:92px;height:72px}button,.btn{padding:8px 10px}
 }
-@media print{header.top,nav.tabs,.noprint,button{display:none!important}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
+
+/* ===== مكوّنات التصميم الجديد ===== */
+.prog{height:8px;border-radius:50px;background:var(--pri-l);overflow:hidden;min-width:70px}
+.prog>i{display:block;height:100%;border-radius:50px;background:var(--pri)}
+.prog.ok>i{background:var(--ok)}.prog.mid>i{background:var(--acc)}.prog.bad>i{background:var(--bad)}
+.opt{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:12px;padding:8px 14px;min-height:40px;font:inherit;font-weight:600;cursor:pointer}
+.opt.on{background:var(--pri-l);border-color:var(--pri);color:var(--pri)}
+.opt.on.good{background:#e3f4ea;border-color:var(--ok);color:var(--ok)}.opt.on.badc{background:#fde7e7;border-color:var(--bad);color:var(--bad)}
+.tag{display:inline-flex;align-items:center;gap:5px;border-radius:50px;padding:3px 11px;font-size:12px;font-weight:700}
+.tag.badc{background:#fde7e7;color:var(--bad)}.tag.good{background:#e3f4ea;color:var(--ok)}.tag.warn{background:var(--acc-l);color:#7a4b00}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:currentColor}
+.kpis4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.tile{text-align:center;border-top:4px solid var(--pri);padding:12px 8px}
+.tile .big{font-size:24px;margin-bottom:2px}.tile.t-warn{border-top-color:var(--acc)}.tile.t-bad{border-top-color:var(--bad)}.tile.t-good{border-top-color:var(--ok)}
+.login{background:#fff;border-radius:24px!important;padding:26px 22px!important;box-shadow:0 10px 30px rgba(40,53,147,.15)}
+.login h2{text-align:center}.login .sub{text-align:center;color:var(--acc);font-weight:700;margin:-6px 0 18px;letter-spacing:.5px}
+.fld{position:relative}.fld svg{position:absolute;top:50%;margin-top:-17px;right:12px;width:20px;height:20px;fill:var(--gray);pointer-events:none}
+.fld input{padding-right:42px}
+.login button[data-act=login]{padding:13px;font-size:16px;font-weight:700;border-radius:14px}
+body.loginbg{min-height:100vh;background:linear-gradient(180deg,var(--pri-l),var(--bg) 60%) no-repeat}
+.opt:hover:not(:disabled){background:var(--pri-l);color:var(--pri)}.opt.on.good:hover:not(:disabled){background:#d3eddd;color:var(--ok)}
+nav.tabs button:hover:not(.on){background:var(--pri-l)}
+@media (max-width:640px){.kpis4{grid-template-columns:1fr 1fr}}
+@media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
 </style>
 </head>
@@ -251,9 +275,10 @@ async function startSession(){
   await loadAll(); view={tab:'reports'}; render();
 }
 function renderLogin(){
-  el('app').innerHTML=`<div class="login card"><h2 style="color:var(--red);margin-top:0">رنين — إدارة الجودة</h2>
-  <label>اسم المستخدم</label><input id="lu" autocomplete="username" autocapitalize="off">
-  <label>كلمة المرور</label><input id="lp" type="password" autocomplete="current-password">
+  document.body.classList.add('loginbg');
+  el('app').innerHTML=`<div class="login card"><h2 style="color:var(--pri);margin-top:0;font-size:32px">رنين</h2><div class="sub">إدارة الجودة</div>
+  <label>اسم المستخدم</label><div class="fld"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v3h16v-3c0-3-4-5-8-5z"/></svg><input id="lu" autocomplete="username" autocapitalize="off"></div>
+  <label>كلمة المرور</label><div class="fld"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6z"/></svg><input id="lp" type="password" autocomplete="current-password"></div>
   <div class="err" id="lerr"></div><button data-act="login" style="width:100%">دخول</button></div>`;
   el('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 }
@@ -278,6 +303,7 @@ async function loadAll(){
 
 // ---------- الإطار ----------
 function render(){
+  document.body.classList.remove('loginbg');
   const admin=ME.role==='ADMIN';
   const tabs=[['reports','التقارير']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
   const on=view.tab==='unit'?'catalog':view.tab==='report'?'reports':view.tab;
@@ -295,7 +321,12 @@ function reportsView(){
   let list=REPORTS.slice();
   if(mgr&&FILTER.pending) list=list.filter(needs);
   if(FILTER.q) list=list.filter(r=>matches(FILTER.q,r.report_number,(byId(C.branches,r.branch_id)||{}).name,NAMES[r.inspector_id]));
-  return `<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="${FILTER.pending?'':'alt'}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="${FILTER.pending?'alt':''}" data-act="fpend" data-id="0">الكل</button>`:''}
+  const cnt=st=>REPORTS.filter(r=>r.status===st).length, pend=REPORTS.filter(needs).length;
+  const kp=`<div class="kpis4 noprint"><div class="card tile"><div class="big">${REPORTS.length}</div><div class="muted">كل التقارير</div></div>
+    <div class="card tile t-warn"><div class="big">${pend||cnt('SUBMITTED')+cnt('REVIEWED')}</div><div class="muted">${mgr?'تحتاج إجراء':'قيد المراجعة'}</div></div>
+    <div class="card tile t-bad"><div class="big">${cnt('RETURNED')}</div><div class="muted">معادة للمراقب</div></div>
+    <div class="card tile t-good"><div class="big">${cnt('FINAL_APPROVED')}</div><div class="muted">معتمدة نهائيًا</div></div></div>`;
+  return kp+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
      <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(NAMES[r.inspector_id]||'')}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
@@ -307,7 +338,7 @@ function reportView(){
   const final=r.status==='FINAL_APPROVED';
   const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
-    h+=`<div class="card viol"><b>${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><div class="muted">${esc(v.category?v.category.name:'')}</div>
+    h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><span class="tag badc">✕ مخالف · −${v.deduction}</span></div><div class="muted">${esc(v.category?v.category.name:'')}</div>
     <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
     ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
@@ -315,12 +346,12 @@ function reportView(){
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
   <div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(b.branch)}</h2><span class="chip st-${r.status}">${ST_SHORT[r.status]}</span></div>
-    <p>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p></div>
+    <p>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p>${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="muted" style="margin-bottom:4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div>`:''}</div>
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
-  <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
+  <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="prog ${sc(b.secAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.secAvg||0))}%"></i></div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="prog ${sc(b.admAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.admAvg||0))}%"></i></div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
-  ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b></td><td>${l.violCount}</td></tr>`).join('')}</table></div>
+  ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td></tr>`).join('')}</table></div>
   <h3>المخالفات (${b.viol.length})</h3>${vcards||'<p class="ok">لا توجد مخالفات.</p>'}
   ${b.census.length?`<h3>ضوابط الحصر</h3>${cen}`:''}
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
@@ -392,7 +423,7 @@ function csvReport(){
 // ---------- المستخدمون ----------
 function usersView(){
   return `<div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">المستخدمون</h3><button data-act="userForm" data-id="">+ مستخدم</button></div>`+
-   PROFILES.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(p=>`<div class="card click" data-act="userForm" data-id="${esc(p.id)}"><div class="row"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.username)} · ${ROLE_AR[p.role]}</div></div><span class="${p.is_active?'ok':'bad'}">${p.is_active?'مفعّل':'معطّل'}</span></div></div>`).join('');
+   PROFILES.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(p=>`<div class="card click" data-act="userForm" data-id="${esc(p.id)}"><div class="row"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.username)} · ${ROLE_AR[p.role]}</div></div><span class="tag ${p.is_active?'good':'badc'}"><span class="dot"></span>${p.is_active?'مفعّل':'معطّل'}</span></div></div>`).join('');
 }
 function userForm(id){
   const p=id?PROFILES.find(x=>x.id===id):{name:'',username:'',role:'INSPECTOR',is_active:true};
@@ -420,7 +451,7 @@ const maxSort=a=>a.reduce((m,x)=>Math.max(m,x.sortOrder||0),0);
 
 function branchesView(){
   return `<div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">الفروع</h3><button data-act="branchForm" data-id="">+ فرع</button></div>`+
-   C.branches.map(b=>`<div class="card click" data-act="branchForm" data-id="${esc(b.id)}"><div class="row"><div class="grow"><b>${esc(b.name)}</b><div class="muted">${esc(b.code)} - ${esc(b.region||'')}</div></div><span class="${b.isActive?'ok':'bad'}">${b.isActive?'مفعّل':'معطّل'}</span></div></div>`).join('')||'<p class="muted">مفيش فروع.</p>';
+   C.branches.map(b=>`<div class="card click" data-act="branchForm" data-id="${esc(b.id)}"><div class="row"><div class="grow"><b>${esc(b.name)}</b><div class="muted">${esc(b.code)} - ${esc(b.region||'')}</div></div><span class="tag ${b.isActive?'good':'badc'}"><span class="dot"></span>${b.isActive?'مفعّل':'معطّل'}</span></div></div>`).join('')||'<p class="muted">مفيش فروع.</p>';
 }
 function branchForm(id){
   const b=id?byId(C.branches,id):{code:'',name:'',region:'',isActive:true};

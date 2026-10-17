@@ -67,6 +67,23 @@ body.loginbg{min-height:100vh;background:linear-gradient(180deg,var(--pri-l),var
 .opt:hover:not(:disabled){background:var(--pri-l);color:var(--pri)}.opt.on.good:hover:not(:disabled){background:#d3eddd;color:var(--ok)}
 nav.tabs button:hover:not(.on){background:var(--pri-l)}
 @media (max-width:640px){.kpis4{grid-template-columns:1fr 1fr}}
+
+/* ===== الرسائل ===== */
+.chead{padding:10px 12px;border-bottom:1px solid var(--line);gap:10px;align-items:center}
+.cmsgs{height:min(62vh,520px);overflow-y:auto;padding:12px;background:#eef0f8;display:flex;flex-direction:column;gap:5px}
+.bub{max-width:78%;padding:7px 11px;border-radius:16px;background:#fff;align-self:flex-end;border-bottom-left-radius:4px;word-break:break-word}
+.bub.me{align-self:flex-start;background:var(--pri-l);border-bottom-left-radius:16px;border-bottom-right-radius:4px}
+.bub small{display:block;text-align:left;color:var(--gray);margin-top:2px;font-size:11px;direction:ltr}
+.bub small.rd{color:var(--pri)}
+.dsep{align-self:center;background:rgba(255,255,255,.9);color:var(--gray);border-radius:50px;padding:3px 12px;font-size:12px;margin:6px 0}
+.cbar{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);align-items:flex-end}
+.cbar textarea{flex:1;margin:0;border-radius:20px;resize:none}.cbar button{border-radius:50px;padding:10px 18px}
+.crow{display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer}.crow:hover{background:var(--pri-l)}
+.crow .grow{min-width:0}.crow .pv{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gray);font-size:14px}.crow .pv.un{color:var(--ink);font-weight:700}
+.av{width:44px;height:44px;border-radius:50%;background:var(--pri-l);color:var(--pri);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
+.cnt{background:var(--pri);color:#fff;border-radius:50px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;padding:0 6px}
+.cbadge{background:var(--acc);color:#3a2600;border-radius:50px;font-size:11px;font-weight:800;padding:1px 7px;margin-inline-start:6px}
+.cban{background:var(--acc-l);color:#5a3a00;padding:6px 12px;font-size:13px}
 @media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
 </style>
@@ -265,14 +282,15 @@ async function doLogin(){
     saveS(j); await startSession();
   }catch(e){el('lerr').textContent=errTxt(e)}
 }
-function logoutLocal(){S=null;ME=null;localStorage.removeItem('rq_sess');renderLogin()}
+function logoutLocal(){resetChat();S=null;ME=null;localStorage.removeItem('rq_sess');renderLogin()}
 async function startSession(){
+  resetChat();
   const pr=await api(`/rest/v1/profiles?id=eq.${S.uid}&select=*`);
   if(!pr.length||!pr[0].is_active){logoutLocal();el('lerr').textContent='الحساب غير مفعّل';return}
   ME=pr[0];
   if(ME.role==='INSPECTOR'){logoutLocal();el('lerr').textContent='النسخة دي للمديرين والأدمن. المراقب يستخدم تطبيق الموبايل.';return}
   if(ME.must_change){renderMustChange();return}
-  await loadAll(); view={tab:'reports'}; render();
+  await loadAll(); view={tab:'reports'}; render(); chatSync();
 }
 function renderLogin(){
   document.body.classList.add('loginbg');
@@ -305,13 +323,15 @@ async function loadAll(){
 function render(){
   document.body.classList.remove('loginbg');
   const admin=ME.role==='ADMIN';
-  const tabs=[['reports','التقارير']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
+  const tabs=[['reports','التقارير'],['chat','الرسائل']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
   const on=view.tab==='unit'?'catalog':view.tab==='report'?'reports':view.tab;
   el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''}</small>
     <button class="alt" data-act="refresh">تحديث</button><button class="alt" data-act="logout">خروج</button></header>
-    <nav class="tabs">${tabs.map(t=>`<button class="${on===t[0]?'on':''}" data-act="tab" data-id="${t[0]}">${t[1]}</button>`).join('')}</nav>
-    <main>${view.tab==='reports'?reportsView():view.tab==='report'?reportView():view.tab==='users'?usersView():view.tab==='branches'?branchesView():view.tab==='catalog'?catalogView():unitView()}</main>`;
+    <nav class="tabs">${tabs.map(t=>`<button class="${on===t[0]?'on':''}" data-act="tab" data-id="${t[0]}">${t[1]}${t[0]==='chat'?'<span id="cbadge" class="cbadge" style="display:none"></span>':''}</button>`).join('')}</nav>
+    <main>${view.tab==='reports'?reportsView():view.tab==='chat'?chatView():view.tab==='report'?reportView():view.tab==='users'?usersView():view.tab==='branches'?branchesView():view.tab==='catalog'?catalogView():unitView()}</main>`;
   if(view.tab==='report') afterReport();
+  if(view.tab==='chat'){ chatUI(); chatSync() }
+  else chatUI();
 }
 const needs=r=>(ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED')||(ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED');
 
@@ -546,10 +566,139 @@ async function saveCtl(id){
 }
 async function hideCtl(id){const k=byId(C.controls,id);if(!k||!confirm(`تأكيد تعطيل الضابط «${k.text}»؟`))return;k.isActive=false;if(await commit()){closeModal();render()}}
 
+
+// ---------- الرسائل (شات بين المستخدمين) ----------
+// نص فقط حاليًا. التسليم بالـ polling (٣ ثواني والشات مفتوح، ٣٠ ثانية في باقي الصفحات). الأمان على السيرفر بـ RLS.
+const CH={msgs:[],auto:{},cursor:'1970-01-01T00:00:00Z',q:'',tick:0,busy:false,ens:new Set()};
+function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.q='';CH.ens=new Set()}
+const cidOf=(a,b)=>[a,b].sort().join('_');
+const pad2=n=>String(n).padStart(2,'0');
+const fmtT=ms=>{const d=new Date(ms);return pad2(d.getHours())+':'+pad2(d.getMinutes())};
+const dkey=ms=>{const d=new Date(ms);return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())};
+const dlabel=ms=>{const k=dkey(ms),n=Date.now();return k===dkey(n)?'اليوم':k===dkey(n-864e5)?'أمس':k};
+const listT=ms=>{const k=dkey(ms),n=Date.now();return k===dkey(n)?fmtT(ms):k===dkey(n-864e5)?'أمس':k};
+function uuid(){ if(crypto.randomUUID) return crypto.randomUUID();
+  const b=crypto.getRandomValues(new Uint8Array(16));b[6]=b[6]&15|64;b[8]=b[8]&63|128;
+  const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20) }
+function addMsg(r){
+  const m={id:r.id,cid:r.conversation_id,from:r.sender_id,to:r.receiver_id,type:r.type,body:r.body,at:Date.parse(r.created_at),read:r.read_at?Date.parse(r.read_at):null};
+  const i=CH.msgs.findIndex(x=>x.id===m.id);
+  if(i>=0) CH.msgs[i]=Object.assign(CH.msgs[i],m,{read:m.read||CH.msgs[i].read}); else CH.msgs.push(m);
+}
+function chatExpire(){const now=Date.now();CH.msgs=CH.msgs.filter(m=>{const h=CH.auto[m.cid];return !h||m.at>=now-h*36e5})}
+const peerOf=m=>m.from===ME.id?m.to:m.from;
+const pname=id=>NAMES[id]||'مستخدم محذوف';
+async function chatSync(){
+  if(CH.busy||!ME||!S) return; CH.busy=true;
+  try{
+    const cv=await api('/rest/v1/chat_conversations?select=id,auto_delete_hours');
+    CH.auto={}; cv.forEach(c=>{if(c.auto_delete_hours) CH.auto[c.id]=c.auto_delete_hours});
+    for(;;){
+      const rows=await api('/rest/v1/chat_messages?select=id,conversation_id,sender_id,receiver_id,type,body,created_at,read_at&created_at=gt.'+encodeURIComponent(CH.cursor)+'&order=created_at.asc&limit=500');
+      rows.forEach(r=>{addMsg(r);CH.cursor=r.created_at});
+      if(rows.length<500) break;
+    }
+    // علامة "اتقرت" على رسايلي (بنسأل بس عن اللي لسه ما اتقراش)
+    const ids=CH.msgs.filter(m=>m.from===ME.id&&!m.read).slice(-100).map(m=>m.id);
+    if(ids.length){const rr=await api('/rest/v1/chat_messages?select=id,read_at&id=in.('+ids.join(',')+')&read_at=not.is.null');
+      rr.forEach(r=>{const m=CH.msgs.find(x=>x.id===r.id);if(m)m.read=Date.parse(r.read_at)})}
+    chatExpire();
+  }catch(e){ /* فشل مؤقت: المحاولة الجاية */ }
+  finally{ CH.busy=false }
+  if(view.tab==='chat'&&view.peer) await chatMarkRead();
+  chatUI();
+}
+async function chatMarkRead(){
+  const cid=cidOf(ME.id,view.peer), un=CH.msgs.filter(m=>m.cid===cid&&m.to===ME.id&&!m.read);
+  if(!un.length) return;
+  try{
+    await api('/rest/v1/chat_messages?conversation_id=eq.'+cid+'&receiver_id=eq.'+ME.id+'&read_at=is.null',{method:'PATCH',headers:{Prefer:'return=minimal'},body:{read_at:new Date().toISOString()}});
+    const t=Date.now(); un.forEach(m=>m.read=t);
+  }catch(e){}
+}
+async function ensureConv(cid){
+  if(CH.ens.has(cid)) return;
+  const [a,b]=cid.split('_');
+  await api('/rest/v1/chat_conversations?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:{id:cid,user_a:a,user_b:b}});
+  CH.ens.add(cid);
+}
+async function sendChat(){
+  const inp=el('cin'); if(!inp||!view.peer) return;
+  const t=inp.value.trim(); if(!t) return;
+  const cid=cidOf(ME.id,view.peer), btn=el('csend'); inp.value=''; btn.disabled=true;
+  try{
+    await ensureConv(cid);
+    const rows=await api('/rest/v1/chat_messages?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},
+      body:{id:uuid(),conversation_id:cid,sender_id:ME.id,receiver_id:view.peer,type:'TEXT',body:t}});
+    if(rows&&rows[0]) addMsg(rows[0]);
+  }catch(e){ inp.value=t; toast(errTxt(e),true) }
+  finally{ btn.disabled=false; chatUI(true); inp.focus() }
+}
+async function toggleAuto(){
+  if(!view.peer) return; const cid=cidOf(ME.id,view.peer), on=!!CH.auto[cid];
+  try{
+    await ensureConv(cid);
+    await api('/rest/v1/chat_conversations?id=eq.'+cid,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{auto_delete_hours:on?null:24}});
+    if(on) delete CH.auto[cid]; else CH.auto[cid]=24;
+    chatExpire(); chatUI(); toast(on?'اتلغى الحذف التلقائي':'الرسائل هتتمسح بعد 24 ساعة');
+  }catch(e){ toast(errTxt(e),true) }
+}
+function chatView(){
+  if(view.peer){
+    return `<div class="card" style="padding:0;overflow:hidden"><div class="row chead"><button class="alt" data-act="chatBack">رجوع</button>
+      <div class="av" style="width:38px;height:38px">${esc(pname(view.peer).trim().charAt(0)||'؟')}</div>
+      <div class="grow"><b>${esc(pname(view.peer))}</b><div class="muted">${ROLE_AR[(PROFILES.find(p=>p.id===view.peer)||{}).role]||''}</div></div>
+      <button class="alt" data-act="chatAuto" id="cauto"></button></div>
+      <div id="cban"></div><div class="cmsgs" id="cmsgs"></div>
+      <div class="cbar"><textarea id="cin" rows="1" placeholder="اكتب رسالة"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
+  }
+  if(view.pick){
+    return `<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">محادثة جديدة</h2><button class="alt" data-act="chatBack">رجوع</button></div>
+      <input id="cq" placeholder="ابحث بالاسم" value="${esc(CH.q)}"><div class="card" style="padding:0" id="cpeers"></div>`;
+  }
+  return `<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">الرسائل</h2><button data-act="chatNew">+ محادثة جديدة</button></div>
+    <div class="card" style="padding:0" id="clist"></div>`;
+}
+function chatUI(forceBottom){
+  if(!ME) return;
+  const un=CH.msgs.filter(m=>m.to===ME.id&&!m.read).length, b=el('cbadge');
+  if(b){b.textContent=un?(un>99?'99+':un):'';b.style.display=un?'inline-block':'none'}
+  if(view.tab!=='chat') return;
+  if(view.peer){
+    const cid=cidOf(ME.id,view.peer), on=!!CH.auto[cid], box=el('cmsgs'); if(!box) return;
+    el('cauto').textContent=on?'✓ حذف بعد 24 ساعة':'حذف بعد 24 ساعة';
+    el('cban').innerHTML=on?'<div class="cban">⏱ الرسائل في المحادثة دي بتتمسح تلقائيًا بعد 24 ساعة</div>':'';
+    const first=!box.dataset.ready, atBottom=first||forceBottom||box.scrollHeight-box.scrollTop-box.clientHeight<80;
+    let last='',h='';
+    CH.msgs.filter(m=>m.cid===cid).sort((a,b)=>a.at-b.at).forEach(m=>{
+      const k=dkey(m.at); if(k!==last){h+=`<div class="dsep">${esc(dlabel(m.at))}</div>`;last=k}
+      const mine=m.from===ME.id, body=m.type==='TEXT'?esc(m.body).replace(/\n/g,'<br>'):'📎 مرفق (بيظهر في التطبيق)';
+      h+=`<div class="bub ${mine?'me':''}"><div>${body}</div><small class="${mine&&m.read?'rd':''}">${fmtT(m.at)}${mine?(m.read?' ✓✓':' ✓'):''}</small></div>`;
+    });
+    box.innerHTML=h||'<div class="muted" style="text-align:center;margin:auto">ابدأ المحادثة بكتابة رسالة.</div>'; box.dataset.ready='1';
+    if(atBottom) box.scrollTop=box.scrollHeight;
+  }else if(view.pick){
+    const c=el('cpeers'); if(!c) return;
+    const list=PROFILES.filter(p=>p.is_active&&p.id!==ME.id&&(!CH.q||normAr(p.name).includes(normAr(CH.q))));
+    c.innerHTML=list.map(p=>`<div class="crow" data-act="chatOpen" data-id="${esc(p.id)}"><div class="av">${esc(p.name.trim().charAt(0)||'؟')}</div><div class="grow"><b>${esc(p.name)}</b><div class="muted">${ROLE_AR[p.role]||''}</div></div></div>`).join('')||'<p class="muted" style="padding:14px">مفيش مستخدمين متاحين.</p>';
+  }else{
+    const c=el('clist'); if(!c) return; const groups=new Map();
+    CH.msgs.forEach(m=>{const g=groups.get(m.cid)||{peer:peerOf(m),last:m,un:0};if(m.at>=g.last.at)g.last=m;if(m.to===ME.id&&!m.read)g.un++;groups.set(m.cid,g)});
+    const rows=[...groups.values()].sort((a,b)=>b.last.at-a.last.at);
+    c.innerHTML=rows.map(g=>{const m=g.last,pv=(m.from===ME.id?'أنت: ':'')+(m.type==='TEXT'?m.body:'📎 مرفق');
+      return `<div class="crow" data-act="chatOpen" data-id="${esc(g.peer)}"><div class="av">${esc(pname(g.peer).trim().charAt(0)||'؟')}</div>
+        <div class="grow"><b>${esc(pname(g.peer))}</b><div class="pv ${g.un?'un':''}">${esc(pv)}</div></div>
+        <div style="text-align:left"><div class="muted" style="font-size:12px">${listT(m.at)}</div>${g.un?`<span class="cnt">${g.un}</span>`:''}</div></div>`}).join('')
+      ||'<p class="muted" style="padding:16px">مفيش محادثات لسه. اضغط «+ محادثة جديدة» عشان تبدأ.</p>';
+  }
+}
+setInterval(()=>{ if(!ME||!S||document.hidden) return; CH.tick++; if(view.tab==='chat'||CH.tick%10===0) chatSync() },3000);
+
 // ---------- الأحداث ----------
 const ACT={
   login:()=>doLogin(), changePw:()=>changePw(), close:()=>closeModal(), logout:()=>{closeModal();logoutLocal()},
   refresh:async()=>{try{await loadAll();render();toast('اتحدّث')}catch(e){toast(errTxt(e),true)}},
+  chatOpen:d=>{view={tab:'chat',peer:d.id};render();const b=el('cmsgs');if(b)b.scrollTop=b.scrollHeight},chatNew:()=>{view={tab:'chat',pick:true};render()},chatBack:()=>{view={tab:'chat'};render()},chatSend:()=>sendChat(),chatAuto:()=>toggleAuto(),
   tab:d=>{view={tab:d.id};render()}, fpend:d=>{FILTER.pending=d.id==='1';render()},
   openReport:d=>{view={tab:'report',id:d.id};render();window.scrollTo(0,0)},
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
@@ -567,9 +716,11 @@ const ACT={
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const f=ACT[b.dataset.act];if(f)f(b.dataset,b)});
 document.addEventListener('input',e=>{
   if(e.target.id==='q'){FILTER.q=e.target.value;const pos=e.target.selectionStart;render();const q=el('q');q.focus();q.setSelectionRange(pos,pos)}
+  if(e.target.id==='cq'){CH.q=e.target.value;chatUI()}
   if(e.target.id==='uq'){view.uq=e.target.value;const pos=e.target.selectionStart;render();const q=el('uq');q.focus();q.setSelectionRange(pos,pos)}
 });
 el('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+document.addEventListener('keydown',e=>{if(e.target.id==='cin'&&e.key==='Enter'&&!e.shiftKey&&!('ontouchstart' in window)){e.preventDefault();sendChat()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!el('modal').classList.contains('hidden'))closeModal()});
 (async()=>{ if(S){try{await startSession()}catch(e){logoutLocal()}} else renderLogin() })();
 

@@ -83,6 +83,9 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
 .av{width:44px;height:44px;border-radius:50%;background:var(--pri-l);color:var(--pri);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
 .cnt{background:var(--pri);color:#fff;border-radius:50px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;padding:0 6px}
 .cbadge{background:var(--acc);color:#3a2600;border-radius:50px;font-size:11px;font-weight:800;padding:1px 7px;margin-inline-start:6px}
+.cimg{display:block;max-width:230px;max-height:280px;min-width:140px;min-height:90px;border-radius:12px;cursor:pointer;background:#d9dceb;object-fit:cover}
+.cvid{display:flex;align-items:center;justify-content:center;width:200px;height:120px;border-radius:12px;background:#1b1d2a;color:#fff;font-weight:700;cursor:pointer}
+.cbar .att{padding:10px 12px;font-size:18px}
 .cban{background:var(--acc-l);color:#5a3a00;padding:6px 12px;font-size:13px}
 @media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
@@ -570,7 +573,8 @@ async function hideCtl(id){const k=byId(C.controls,id);if(!k||!confirm(`تأكي
 // ---------- الرسائل (شات بين المستخدمين) ----------
 // نص فقط حاليًا. التسليم بالـ polling (٣ ثواني والشات مفتوح، ٣٠ ثانية في باقي الصفحات). الأمان على السيرفر بـ RLS.
 const CH={msgs:[],auto:{},cursor:'1970-01-01T00:00:00Z',q:'',tick:0,busy:false,ens:new Set()};
-function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.q='';CH.ens=new Set()}
+const CB=new Map(); // مسار المرفق → blob URL (كاش)
+function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.q='';CH.ens=new Set();CB.forEach(u=>URL.revokeObjectURL(u));CB.clear()}
 const cidOf=(a,b)=>[a,b].sort().join('_');
 const pad2=n=>String(n).padStart(2,'0');
 const fmtT=ms=>{const d=new Date(ms);return pad2(d.getHours())+':'+pad2(d.getMinutes())};
@@ -581,7 +585,7 @@ function uuid(){ if(crypto.randomUUID) return crypto.randomUUID();
   const b=crypto.getRandomValues(new Uint8Array(16));b[6]=b[6]&15|64;b[8]=b[8]&63|128;
   const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20) }
 function addMsg(r){
-  const m={id:r.id,cid:r.conversation_id,from:r.sender_id,to:r.receiver_id,type:r.type,body:r.body,at:Date.parse(r.created_at),read:r.read_at?Date.parse(r.read_at):null};
+  const m={id:r.id,cid:r.conversation_id,from:r.sender_id,to:r.receiver_id,type:r.type,body:r.body,path:r.media_path,at:Date.parse(r.created_at),read:r.read_at?Date.parse(r.read_at):null};
   const i=CH.msgs.findIndex(x=>x.id===m.id);
   if(i>=0) CH.msgs[i]=Object.assign(CH.msgs[i],m,{read:m.read||CH.msgs[i].read}); else CH.msgs.push(m);
 }
@@ -594,7 +598,7 @@ async function chatSync(){
     const cv=await api('/rest/v1/chat_conversations?select=id,auto_delete_hours');
     CH.auto={}; cv.forEach(c=>{if(c.auto_delete_hours) CH.auto[c.id]=c.auto_delete_hours});
     for(;;){
-      const rows=await api('/rest/v1/chat_messages?select=id,conversation_id,sender_id,receiver_id,type,body,created_at,read_at&created_at=gt.'+encodeURIComponent(CH.cursor)+'&order=created_at.asc&limit=500');
+      const rows=await api('/rest/v1/chat_messages?select=id,conversation_id,sender_id,receiver_id,type,body,media_path,created_at,read_at&created_at=gt.'+encodeURIComponent(CH.cursor)+'&order=created_at.asc&limit=500');
       rows.forEach(r=>{addMsg(r);CH.cursor=r.created_at});
       if(rows.length<500) break;
     }
@@ -643,6 +647,59 @@ async function toggleAuto(){
     chatExpire(); chatUI(); toast(on?'اتلغى الحذف التلقائي':'الرسائل هتتمسح بعد 24 ساعة');
   }catch(e){ toast(errTxt(e),true) }
 }
+async function chatBlob(path){
+  if(CB.has(path)) return CB.get(path);
+  await ensureToken();
+  const r=await fetch(CFG.url+'/storage/v1/object/authenticated/chat-media/'+path,{headers:{apikey:CFG.key,Authorization:'Bearer '+S.access}});
+  if(!r.ok) throw {code:r.status};
+  const u=URL.createObjectURL(await r.blob()); CB.set(path,u); return u;
+}
+function hydrateChat(){
+  document.querySelectorAll('#cmsgs img[data-cm]').forEach(img=>{
+    if(img.dataset.ok) return;
+    chatBlob(img.dataset.cm).then(u=>{img.src=u;img.dataset.ok='1'})
+      .catch(()=>{const sp=document.createElement('span');sp.className='muted';sp.textContent='📎 المرفق غير متاح';img.replaceWith(sp)});
+  });
+}
+async function uploadChat(path,blob){
+  await ensureToken();
+  let r; try{ r=await fetch(CFG.url+'/storage/v1/object/chat-media/'+path,{method:'POST',headers:{apikey:CFG.key,Authorization:'Bearer '+S.access,'Content-Type':blob.type||'image/jpeg'},body:blob}) }
+  catch(e){ throw {code:0,msg:'مفيش اتصال بالإنترنت'} }
+  if(!r.ok&&r.status!==409){ const t=await r.text(); let m=''; try{m=JSON.parse(t).message||''}catch(e){} throw {code:r.status,msg:m||'فشل رفع الملف'} }
+}
+// تصغير الصورة لـ 1280px + ختم الاسم والتاريخ والوقت (نفس فكرة التطبيق)
+function prepPhoto(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(), u=URL.createObjectURL(file);
+    img.onerror=()=>{URL.revokeObjectURL(u);rej({msg:'الملف مش صورة صالحة'})};
+    img.onload=()=>{
+      const k=Math.min(1,1280/Math.max(img.width,img.height)), w=Math.round(img.width*k), h=Math.round(img.height*k);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      const g=c.getContext('2d'); g.drawImage(img,0,0,w,h); URL.revokeObjectURL(u);
+      const d=new Date(), lines=['رسالة من: '+ME.name, dkey(d.getTime())+'  '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds())];
+      const fs=Math.max(14,Math.round(w/38)), bh=Math.round(fs*lines.length*1.4+fs*.6);
+      g.fillStyle='rgba(0,0,0,.6)'; g.fillRect(0,h-bh,w,bh);
+      g.fillStyle='#fff'; g.font='bold '+fs+'px sans-serif'; g.direction='rtl'; g.textAlign='right';
+      lines.forEach((t,i)=>g.fillText(t,w-Math.round(fs*.6),h-bh+Math.round(fs*1.15)+i*Math.round(fs*1.4)));
+      c.toBlob(b=>b?res(b):rej({msg:'تعذّر تجهيز الصورة'}),'image/jpeg',0.75);
+    };
+    img.src=u;
+  });
+}
+async function sendChatPhoto(file){
+  if(!file||!view.peer) return;
+  const cid=cidOf(ME.id,view.peer), id=uuid(), path=cid+'/'+id+'.jpg';
+  toast('جاري إرسال الصورة...');
+  try{
+    const blob=await prepPhoto(file);
+    await ensureConv(cid);
+    await uploadChat(path,blob);
+    const rows=await api('/rest/v1/chat_messages?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},
+      body:{id,conversation_id:cid,sender_id:ME.id,receiver_id:view.peer,type:'PHOTO',media_path:path}});
+    if(rows&&rows[0]) addMsg(rows[0]);
+    chatUI(true); toast('اتبعتت');
+  }catch(e){ toast(errTxt(e),true) }
+}
 function chatView(){
   if(view.peer){
     return `<div class="card" style="padding:0;overflow:hidden"><div class="row chead"><button class="alt" data-act="chatBack">رجوع</button>
@@ -650,7 +707,7 @@ function chatView(){
       <div class="grow"><b>${esc(pname(view.peer))}</b><div class="muted">${ROLE_AR[(PROFILES.find(p=>p.id===view.peer)||{}).role]||''}</div></div>
       <button class="alt" data-act="chatAuto" id="cauto"></button></div>
       <div id="cban"></div><div class="cmsgs" id="cmsgs"></div>
-      <div class="cbar"><textarea id="cin" rows="1" placeholder="اكتب رسالة"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
+      <div class="cbar"><button class="alt att" data-act="chatPick" title="إرسال صورة">📷</button><input type="file" id="cfile" accept="image/*" hidden><textarea id="cin" rows="1" placeholder="اكتب رسالة"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
   }
   if(view.pick){
     return `<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">محادثة جديدة</h2><button class="alt" data-act="chatBack">رجوع</button></div>
@@ -668,14 +725,22 @@ function chatUI(forceBottom){
     const cid=cidOf(ME.id,view.peer), on=!!CH.auto[cid], box=el('cmsgs'); if(!box) return;
     el('cauto').textContent=on?'✓ حذف بعد 24 ساعة':'حذف بعد 24 ساعة';
     el('cban').innerHTML=on?'<div class="cban">⏱ الرسائل في المحادثة دي بتتمسح تلقائيًا بعد 24 ساعة</div>':'';
+    const list=CH.msgs.filter(m=>m.cid===cid).sort((a,b)=>a.at-b.at);
+    const sig=cid+'|'+list.map(m=>m.id+(m.read?'r':'')).join(',');
+    if(!forceBottom&&box.dataset.sig===sig){ hydrateChat(); return }
     const first=!box.dataset.ready, atBottom=first||forceBottom||box.scrollHeight-box.scrollTop-box.clientHeight<80;
     let last='',h='';
-    CH.msgs.filter(m=>m.cid===cid).sort((a,b)=>a.at-b.at).forEach(m=>{
+    list.forEach(m=>{
       const k=dkey(m.at); if(k!==last){h+=`<div class="dsep">${esc(dlabel(m.at))}</div>`;last=k}
-      const mine=m.from===ME.id, body=m.type==='TEXT'?esc(m.body).replace(/\n/g,'<br>'):'📎 مرفق (بيظهر في التطبيق)';
+      const mine=m.from===ME.id;
+      const body=m.type==='TEXT'?esc(m.body).replace(/\n/g,'<br>')
+        :!m.path?'📎 المرفق غير متاح'
+        :m.type==='VIDEO'?`<div class="cvid" data-act="chatMedia" data-p="${esc(m.path)}" data-t="VIDEO">▶ فيديو</div>`
+        :`<img class="cimg" alt="" data-cm="${esc(m.path)}" data-act="chatMedia" data-p="${esc(m.path)}" data-t="PHOTO">`;
       h+=`<div class="bub ${mine?'me':''}"><div>${body}</div><small class="${mine&&m.read?'rd':''}">${fmtT(m.at)}${mine?(m.read?' ✓✓':' ✓'):''}</small></div>`;
     });
-    box.innerHTML=h||'<div class="muted" style="text-align:center;margin:auto">ابدأ المحادثة بكتابة رسالة.</div>'; box.dataset.ready='1';
+    box.innerHTML=h||'<div class="muted" style="text-align:center;margin:auto">ابدأ المحادثة بكتابة رسالة.</div>'; box.dataset.ready='1'; box.dataset.sig=sig;
+    hydrateChat();
     if(atBottom) box.scrollTop=box.scrollHeight;
   }else if(view.pick){
     const c=el('cpeers'); if(!c) return;
@@ -685,7 +750,7 @@ function chatUI(forceBottom){
     const c=el('clist'); if(!c) return; const groups=new Map();
     CH.msgs.forEach(m=>{const g=groups.get(m.cid)||{peer:peerOf(m),last:m,un:0};if(m.at>=g.last.at)g.last=m;if(m.to===ME.id&&!m.read)g.un++;groups.set(m.cid,g)});
     const rows=[...groups.values()].sort((a,b)=>b.last.at-a.last.at);
-    c.innerHTML=rows.map(g=>{const m=g.last,pv=(m.from===ME.id?'أنت: ':'')+(m.type==='TEXT'?m.body:'📎 مرفق');
+    c.innerHTML=rows.map(g=>{const m=g.last,pv=(m.from===ME.id?'أنت: ':'')+(m.type==='TEXT'?m.body:m.type==='VIDEO'?'🎥 فيديو':'📷 صورة');
       return `<div class="crow" data-act="chatOpen" data-id="${esc(g.peer)}"><div class="av">${esc(pname(g.peer).trim().charAt(0)||'؟')}</div>
         <div class="grow"><b>${esc(pname(g.peer))}</b><div class="pv ${g.un?'un':''}">${esc(pv)}</div></div>
         <div style="text-align:left"><div class="muted" style="font-size:12px">${listT(m.at)}</div>${g.un?`<span class="cnt">${g.un}</span>`:''}</div></div>`}).join('')
@@ -698,7 +763,10 @@ setInterval(()=>{ if(!ME||!S||document.hidden) return; CH.tick++; if(view.tab===
 const ACT={
   login:()=>doLogin(), changePw:()=>changePw(), close:()=>closeModal(), logout:()=>{closeModal();logoutLocal()},
   refresh:async()=>{try{await loadAll();render();toast('اتحدّث')}catch(e){toast(errTxt(e),true)}},
-  chatOpen:d=>{view={tab:'chat',peer:d.id};render();const b=el('cmsgs');if(b)b.scrollTop=b.scrollHeight},chatNew:()=>{view={tab:'chat',pick:true};render()},chatBack:()=>{view={tab:'chat'};render()},chatSend:()=>sendChat(),chatAuto:()=>toggleAuto(),
+  chatOpen:d=>{view={tab:'chat',peer:d.id};render();const b=el('cmsgs');if(b)b.scrollTop=b.scrollHeight},chatNew:()=>{view={tab:'chat',pick:true};render()},chatBack:()=>{view={tab:'chat'};render()},chatSend:()=>sendChat(),chatAuto:()=>toggleAuto(),chatPick:()=>el('cfile').click(),
+  chatMedia:async d=>{try{toast('جاري التحميل...');const u=await chatBlob(d.p);
+    modal(d.t==='VIDEO'?`<video src="${u}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`
+      :`<img class="zoom" src="${u}"><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast('المرفق غير متاح (ممكن يكون انتهت مدته)',true)}},
   tab:d=>{view={tab:d.id};render()}, fpend:d=>{FILTER.pending=d.id==='1';render()},
   openReport:d=>{view={tab:'report',id:d.id};render();window.scrollTo(0,0)},
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
@@ -714,6 +782,7 @@ const ACT={
   ctlForm:d=>ctlForm(d.id,d.cat), saveCtl:d=>saveCtl(d.id), hideCtl:d=>hideCtl(d.id)
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const f=ACT[b.dataset.act];if(f)f(b.dataset,b)});
+document.addEventListener('change',e=>{if(e.target.id==='cfile'){const f=e.target.files&&e.target.files[0];e.target.value='';sendChatPhoto(f)}});
 document.addEventListener('input',e=>{
   if(e.target.id==='q'){FILTER.q=e.target.value;const pos=e.target.selectionStart;render();const q=el('q');q.focus();q.setSelectionRange(pos,pos)}
   if(e.target.id==='cq'){CH.q=e.target.value;chatUI()}

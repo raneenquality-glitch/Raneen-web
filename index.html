@@ -485,9 +485,18 @@ async function saveCatalog(){ await api('/rest/v1/rpc/replace_catalog',{method:'
 async function commit(){ try{await saveCatalog();toast('اتحفظ وهيوصل لكل الأجهزة');return true}catch(e){toast(errTxt(e),true);return false} }
 const maxSort=a=>a.reduce((m,x)=>Math.max(m,x.sortOrder||0),0);
 
+const branchNo=b=>{const n=parseInt(String(b.code||'').replace(/\D/g,''),10);return isNaN(n)?Infinity:n};
+function branchesSorted(q){
+  const nq=normAr(q||'');
+  return C.branches.filter(b=>!nq||normAr(b.name).includes(nq)||String(b.code||'').toLowerCase().includes(nq)||normAr(b.region||'').includes(nq))
+    .slice().sort((a,b)=>(branchNo(a)-branchNo(b))||String(a.code).localeCompare(String(b.code))||a.name.localeCompare(b.name,'ar'));
+}
 function branchesView(){
-  return `<div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">الفروع</h3><button data-act="branchForm" data-id="">+ فرع</button></div>`+
-   C.branches.map(b=>`<div class="card click" data-act="branchForm" data-id="${esc(b.id)}"><div class="row"><div class="grow"><b>${esc(b.name)}</b><div class="muted">${esc(b.code)} - ${esc(b.region||'')}</div></div><span class="tag ${b.isActive?'good':'badc'}"><span class="dot"></span>${b.isActive?'مفعّل':'معطّل'}</span></div></div>`).join('')||'<p class="muted">مفيش فروع.</p>';
+  const list=branchesSorted(view.bq);
+  return `<div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">الفروع</h3><button data-act="branchForm" data-id="">+ فرع</button></div>
+   <input id="bq" placeholder="ابحث بالاسم أو رقم الفرع" value="${esc(view.bq||'')}">
+   <p class="muted" style="margin:4px 0 8px">${list.length} من ${C.branches.length} فرع (مرتبة برقم الفرع)</p>`+
+   list.map(b=>`<div class="card click" data-act="branchForm" data-id="${esc(b.id)}"><div class="row"><div class="grow"><b>${esc(b.name)}</b><div class="muted">رقم ${esc(b.code)}${b.region?' · '+esc(b.region):''}</div></div><span class="tag ${b.isActive?'good':'badc'}"><span class="dot"></span>${b.isActive?'مفعّل':'معطّل'}</span></div></div>`).join('')||'<p class="muted">مفيش فروع.</p>';
 }
 function branchForm(id){
   const b=id?byId(C.branches,id):{code:'',name:'',region:'',isActive:true};
@@ -799,6 +808,7 @@ document.addEventListener('change',e=>{if(e.target.id==='cfile'){const f=e.targe
 document.addEventListener('input',e=>{
   if(e.target.id==='q'){FILTER.q=e.target.value;const pos=e.target.selectionStart;render();const q=el('q');q.focus();q.setSelectionRange(pos,pos)}
   if(e.target.id==='cq'){CH.q=e.target.value;chatUI()}
+  if(e.target.id==='bq'){view.bq=e.target.value;const pos=e.target.selectionStart;render();const q=el('bq');q.focus();q.setSelectionRange(pos,pos)}
   if(e.target.id==='uq'){view.uq=e.target.value;const pos=e.target.selectionStart;render();const q=el('uq');q.focus();q.setSelectionRange(pos,pos)}
 });
 el('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});

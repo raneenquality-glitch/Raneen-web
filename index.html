@@ -366,6 +366,7 @@ function reportView(){
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
     h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b><span class="tag badc">✕ مخالف · −${v.deduction}</span></div><div class="muted">${esc(v.category?v.category.name:'')}</div>
     <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
+    ${v.finding.violationNote?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(v.finding.violationNote)}</div>`:''}
     ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
@@ -374,6 +375,7 @@ function reportView(){
   <div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(b.branch)}</h2><span class="chip st-${r.status}">${ST_SHORT[r.status]}</span></div>
     <p>نوع التقييم: <b>${esc(b.templateLabel||'تقييم أوف لاين')}</b><br>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p>${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="muted" style="margin-bottom:4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div>`:''}</div>
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
+  ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>'}
   <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="prog ${sc(b.secAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.secAvg||0))}%"></i></div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="prog ${sc(b.admAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.admAvg||0))}%"></i></div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
@@ -451,10 +453,10 @@ async function doFinal(){
 }
 function csvReport(){
   const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
-  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات']);
+  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['ملاحظات الزيارة العامة',(b.d.inspection||{}).notes||''],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات']);
   b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount]));
-  rows.push([],['القسم','الكاتجري','رقم البند','البند','المجموعة','عدد الصور']);
-  b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.control.sortOrder,v.control.text,v.group?v.group.name:'',v.photos.length]));
+  rows.push([],['القسم','الكاتجري','رقم البند','البند','المجموعة','ملاحظات المخالفة','عدد الصور']);
+  b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.control.sortOrder,v.control.text,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
   if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }

@@ -234,7 +234,7 @@ const CFG={url:"https://rdhmulfhwgdjtadpcsge.supabase.co",key:"sb_publishable_7z
 const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"مدير إدارة",ADMIN:"مدير النظام"};
 const ST={SUBMITTED:"مُرسل — بانتظار مدير المنطقة",REVIEWED:"تمت المراجعة — بانتظار مدير الإدارة",RETURNED:"أُعيد للمراقب",FINAL_APPROVED:"معتمد نهائيًا"};
 const ST_SHORT={SUBMITTED:"مُرسل",REVIEWED:"تمت المراجعة",RETURNED:"مُعاد",FINAL_APPROVED:"معتمد"};
-const ACT_AR={SUBMITTED:"إرسال التقرير",RESUBMITTED:"إعادة إرسال بعد التعديل",REVIEWED:"مراجعة واعتماد (مدير المنطقة)",RETURNED:"إعادة للتعديل",FINAL_APPROVED:"اعتماد نهائي"};
+const ACT_AR={SUBMITTED:"إرسال التقرير",RESUBMITTED:"إعادة إرسال بعد التعديل",REVIEWED:"مراجعة واعتماد (مدير المنطقة)",RETURNED:"إعادة للتعديل",RETURN_TO_AREA:"إعادة إلى مدير المنطقة",EDITED:"تعديل المحتوى (مدير)",FINAL_APPROVED:"اعتماد نهائي"};
 const el=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const p2=n=>String(n).padStart(2,'0');
@@ -385,7 +385,7 @@ function reportView(){
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
   <div class="noprint" id="acts">
     ${canArea?`<button data-act="approve" data-a="REVIEWED">اعتماد المراجعة</button> <button class="alt" data-act="retForm">إعادة للمراقب</button>`:''}
-    ${canDept?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button><p class="muted">الاعتماد النهائي بينزّل ZIP بالصور الأصلية على جهازك، وبعدها بيمسح الصور من السحابة.</p>`:''}
+    ${canDept?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button> <button class="alt" data-act="retAreaForm">إعادة لمدير المنطقة</button><p class="muted">الاعتماد النهائي بينزّل ZIP بالصور الأصلية على جهازك، وبعدها بيمسح الصور من السحابة.</p>`:''}
     <p><button class="alt" data-act="print">طباعة / حفظ PDF</button> <button class="alt" data-act="csv">تنزيل Excel (CSV)</button> ${final?'':'<button class="alt" data-act="zip">تنزيل الصور (ZIP)</button>'}</p>
     <div class="err" id="rerr"></div></div>`;
 }
@@ -416,6 +416,10 @@ async function review(action,note){
   REPORTS=await api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300');
 }
 async function doApprove(a){ try{ await review(a); toast('تم'); render() }catch(e){ el('rerr').textContent=errTxt(e) } }
+async function doReturnArea(){
+  const n=el('rnote').value.trim(); if(!n){el('rerr2').textContent='اكتب السبب';return}
+  try{await review('RETURN_TO_AREA',n);closeModal();toast('اترجّع لمدير المنطقة');render()}catch(e){el('rerr2').textContent=errTxt(e)}
+}
 async function doReturn(){
   const n=el('rnote').value.trim(); if(!n){el('rerr2').textContent='اكتب السبب';return}
   try{await review('RETURNED',n);closeModal();toast('اترجّع للمراقب');render()}catch(e){el('rerr2').textContent=errTxt(e)}
@@ -807,8 +811,9 @@ const ACT={
   tab:d=>{view={tab:d.id};render()}, fpend:d=>{FILTER.pending=d.id==='1';render()},
   openReport:d=>{view={tab:'report',id:d.id};render();window.scrollTo(0,0)},
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
+  retAreaForm:()=>modal(`<h3>سبب الإعادة لمدير المنطقة</h3><textarea id="rnote" rows="3" placeholder="اكتب السبب (إجباري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturnArea">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   retForm:()=>modal(`<h3>سبب الإعادة</h3><textarea id="rnote" rows="3" placeholder="اكتب السبب (إجباري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
-  doReturn:()=>doReturn(), print:()=>window.print(), csv:()=>csvReport(), zip:()=>doZip(),
+  doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:()=>window.print(), csv:()=>csvReport(), zip:()=>doZip(),
   playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),

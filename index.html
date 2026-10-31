@@ -198,7 +198,7 @@ function templateLabel(id){return id==='smart'?'تقييم معارض سمارت
     r, d, lines, viol, census, missing,
     templateId, templateLabel: templateLabel(templateId),
     branch:(byId(C.branches,r.branch_id)||{}).name||'فرع محذوف',
-    inspector:(names&&names[r.inspector_id])||'',
+    inspector:r._inspNames||(names&&names[r.inspector_id])||'',
     secAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='SECTION').map(l=>l.percent)),
     admAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='ADMINISTRATION').map(l=>l.percent))
   };
@@ -247,7 +247,7 @@ const visitOf=r=>VISIT[String(((r.data||{}).inspection||{}).visitNumber||'')]||'
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('id'+Date.now()+Math.random().toString(16).slice(2));
 
 let S=JSON.parse(localStorage.getItem('rq_sess')||'null'), ME=null, REPORTS=[], PROFILES=[], NAMES={};
-let EDIT=null; let view={tab:'reports'}, FILTER={pending:true,q:''}; const MEDIA=new Map();
+let EDIT=null; let SEATS=[]; let view={tab:'reports'}, FILTER={pending:true,q:''}; const MEDIA=new Map();
 
 function toast(m,err){const t=el('toast');t.textContent=m;t.style.background=err?'#b00020':'#222';t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',err?6000:3000)}
 function modal(html){const m=el('modal');m.innerHTML=`<div class="box">${html}</div>`;m.classList.remove('hidden')}
@@ -318,11 +318,12 @@ async function changePw(){
   catch(e){el('lerr').textContent=errTxt(e)}
 }
 async function loadAll(){
-  const [cat,prof,reps]=await Promise.all([
+  const [cat,prof,reps,seats]=await Promise.all([
     api('/rest/v1/catalog_items?select=kind,id,data&order=kind,id'),
     api('/rest/v1/profiles?select=*'),
-    api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300')]);
-  setCatalog(cat); PROFILES=prof; NAMES=Object.fromEntries(prof.map(p=>[p.id,p.name])); REPORTS=reps;
+    api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300'),
+    api('/rest/v1/visit_seats?select=*').catch(()=>[])]);
+  setCatalog(cat); PROFILES=prof; NAMES=Object.fromEntries(prof.map(p=>[p.id,p.name])); REPORTS=reps; SEATS=Array.isArray(seats)?seats:[];
 }
 
 // ---------- الإطار ----------
@@ -339,23 +340,74 @@ function render(){
   if(view.tab==='chat'){ chatUI(); chatSync() }
   else chatUI();
 }
+
+// ---------- زيارة بمراقبين اتنين: دمج الجزئين (تشغيل + إدارات مساعدة) في تقرير واحد ----------
+const SEAT_KIND={OPERATIONAL:'SECTION',SUPPORT:'ADMINISTRATION'};
+const SEAT_AR={OPERATIONAL:'الأقسام التشغيلية',SUPPORT:'الإدارات المساعدة'};
+const STATUS_RANK={DRAFT:0,RETURNED:1,SUBMITTED:2,UNDER_REVIEW:3,REVIEWED:4,FINAL_APPROVED:5};
+function visitSeatRows(r){ if(!r.visit_key) return []; const k=r.visit_key.split('|'); return SEATS.filter(s=>s.branch_id===k[0]&&s.template_id===k[1]&&s.visit_month===k[2]&&s.visit_number===k[3]) }
+function partnerOf(r){ return r.visit_key?REPORTS.find(x=>x.id!==r.id&&x.visit_key===r.visit_key):null }
+function isPrimary(r){ const p=partnerOf(r); return !p||String(r.id)<String(p.id) }
+function kindOfUnit(id){ const u=byId(C.units,id); return u?u.kind:null }
+function compose(r){
+  const rows=visitSeatRows(r), p=partnerOf(r);
+  const waitingOf=parts=>rows.filter(s=>!s.inspection_id&&!parts.some(x=>x.inspector_id===s.inspector_id)).map(s=>({seat:s.seat,name:NAMES[s.inspector_id]||''}));
+  if(!p){ const w=waitingOf([r]); return w.length?Object.assign({},r,{_waiting:w}):r }
+  const parts=[r,p].sort((a,b)=>String(a.id)<String(b.id)?-1:1);
+  const kinds=parts.map(x=>{const mine=rows.filter(s=>s.inspector_id===x.inspector_id); return mine.length?new Set(mine.map(s=>SEAT_KIND[s.seat])):null});
+  const cnt=(x,u)=>((x.data&&x.data.findings)||[]).filter(f=>f.unitId===u).length;
+  const owner=u=>{const k=kindOfUnit(u); const c=parts.filter((x,i)=>!kinds[i]||(k&&kinds[i].has(k))); const pool=c.length?c:parts;
+    return pool.length===1?pool[0]:pool.reduce((a,b)=>cnt(b,u)>cnt(a,u)?b:a)};
+  const units=[],findings=[],photos=[];
+  parts.forEach(x=>{const d=x.data||{}; const fids=new Set();
+    (d.units||[]).forEach(u=>{if(owner(u.unitId)===x) units.push(u)});
+    (d.findings||[]).forEach(f=>{if(owner(f.unitId)===x){findings.push(f);fids.add(f.id)}});
+    (d.photos||[]).forEach(ph=>{if(fids.has(ph.findingId)) photos.push(Object.assign({},ph,{_own:x}))});});
+  const labels=parts.map((x,i)=>{const ks=kinds[i]; return ks&&ks.size===1?(ks.has('SECTION')?SEAT_AR.OPERATIONAL:SEAT_AR.SUPPORT):'الجزء '+(i+1)});
+  const status=parts.some(x=>x.status==='RETURNED')?'RETURNED':parts.reduce((a,b)=>(STATUS_RANK[b.status]<STATUS_RANK[a.status]?b:a)).status;
+  const notes=parts.map((x,i)=>{const n=x.data&&x.data.inspection&&x.data.inspection.notes; return n?`${labels[i]} (${NAMES[x.inspector_id]||''}):\n${n}`:''}).filter(Boolean).join('\n\n');
+  const audit=[].concat(...parts.map(x=>(x.audit||[]))).sort((a,b)=>(a.at||0)-(b.at||0));
+  return Object.assign({},r,{status,_parts:parts,_labels:labels,_owner:owner,_waiting:waitingOf(parts),_inspNames:parts.map(x=>NAMES[x.inspector_id]||'').join(' + '),audit,
+    data:Object.assign({},r.data,{inspection:Object.assign({},(r.data||{}).inspection,{notes}),units,findings,photos})});
+}
+function curReport(){ const r=REPORTS.find(x=>x.id===view.id); return r?compose(r):null }
+function retPartSel(){ const rm=curReport(); const ps=rm&&rm._parts; if(!ps) return '';
+  return `<select id="rpart" style="width:100%;margin-bottom:8px"><option value="${ps.map(p=>p.id).join(',')}">كل الأجزاء</option>${ps.map((p,i)=>`<option value="${esc(p.id)}">${esc(rm._labels[i])} — ${esc(NAMES[p.inspector_id]||'')}</option>`).join('')}</select>`}
+
+// ---------- المقاعد المحجوزة اللي لسه ماترفعش: الأدمن / مدير المنطقة / مدير الإدارة يقدروا يلغوها ----------
+function seatsPanel(){
+  if(!['ADMIN','AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
+  const open=SEATS.filter(s=>!s.inspection_id); if(!open.length) return '';
+  return `<div class="card noprint"><b>🪑 مقاعد محجوزة لسه ماترفعش (${open.length})</b><div class="muted">لو المراقب فتح الزيارة وماشتغلش عليها، ألغي المقعد عشان مراقب تاني ياخده.</div>`+
+    open.map(s=>`<div class="row" style="margin-top:8px"><div class="grow">${esc((byId(C.branches,s.branch_id)||{}).name||s.branch_id)} · ${esc(templateLabel(s.template_id))} · الزيارة ${s.visit_number==='1'?'الأولى':'الثانية'} · ${esc(s.visit_month)}<div class="muted">${SEAT_AR[s.seat]||s.seat} — ${esc(NAMES[s.inspector_id]||'مراقب')} · من ${fmtD(Date.parse(s.created_at))}</div></div><button class="alt" data-act="seatCancel" data-id="${esc(s.id)}">إلغاء المقعد</button></div>`).join('')+
+    `<div class="err" id="serr"></div></div>`;
+}
+async function seatCancel(id){
+  const s=SEATS.find(x=>x.id===id); if(!s) return;
+  if(!confirm('إلغاء مقعد '+(SEAT_AR[s.seat]||s.seat)+' لـ '+(NAMES[s.inspector_id]||'المراقب')+'؟ المراقب مش هيقدر يرفع التقرير ده بعد كده.')) return;
+  try{
+    await api('/rest/v1/rpc/release_visit_seat',{method:'POST',body:{p_branch_id:s.branch_id,p_template_id:s.template_id,p_visit_number:s.visit_number,p_seat:s.seat,p_month:s.visit_month}});
+    SEATS=await api('/rest/v1/visit_seats?select=*').catch(()=>[]); toast('اتلغى المقعد'); render();
+  }catch(e){ const x=el('serr'); const m=(e&&e.msg)||''; if(x) x.textContent=/already submitted/i.test(m)?'الجزء ده اتبعت خلاص، مينفعش يتلغي.':errTxt(e) }
+}
 const needs=r=>(ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED')||(ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED');
 
 // ---------- التقارير ----------
 function reportsView(){
   const mgr=ME.role==='AREA_MANAGER'||ME.role==='DEPT_MANAGER';
-  let list=REPORTS.slice();
+  const VL=REPORTS.filter(isPrimary).map(compose);
+  let list=VL.slice();
   if(mgr&&FILTER.pending) list=list.filter(needs);
-  if(FILTER.q) list=list.filter(r=>matches(FILTER.q,r.report_number,(byId(C.branches,r.branch_id)||{}).name,NAMES[r.inspector_id]));
-  const cnt=st=>REPORTS.filter(r=>r.status===st).length, pend=REPORTS.filter(needs).length;
-  const kp=`<div class="kpis4 noprint"><div class="card tile"><div class="big">${REPORTS.length}</div><div class="muted">كل التقارير</div></div>
+  if(FILTER.q) list=list.filter(r=>matches(FILTER.q,r.report_number,(byId(C.branches,r.branch_id)||{}).name,NAMES[r.inspector_id],r._inspNames));
+  const cnt=st=>VL.filter(r=>r.status===st).length, pend=VL.filter(needs).length;
+  const kp=`<div class="kpis4 noprint"><div class="card tile"><div class="big">${VL.length}</div><div class="muted">كل التقارير</div></div>
     <div class="card tile t-warn"><div class="big">${pend||cnt('SUBMITTED')+cnt('REVIEWED')}</div><div class="muted">${mgr?'تحتاج إجراء':'قيد المراجعة'}</div></div>
     <div class="card tile t-bad"><div class="big">${cnt('RETURNED')}</div><div class="muted">معادة للمراقب</div></div>
     <div class="card tile t-good"><div class="big">${cnt('FINAL_APPROVED')}</div><div class="muted">معتمدة نهائيًا</div></div></div>`;
-  return kp+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
+  return kp+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
-     <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(NAMES[r.inspector_id]||'')}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
+     <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(r._inspNames||NAMES[r.inspector_id]||'')}${r._waiting&&r._waiting.length?' · ⏳ في انتظار '+esc(r._waiting.map(w=>w.name).join('، ')):''}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
 }
 
 // ---------- تعديل التقرير من الويب (مدير المنطقة / مدير الإدارة قبل الاعتماد النهائي) ----------
@@ -377,17 +429,23 @@ function addPanel(b){
    <button class="alt" data-act="eAdd" style="margin-top:6px">إضافة</button></div>`;
 }
 async function eSave(){
-  const r=REPORTS.find(x=>x.id===EDIT.id); const btn=document.querySelector('[data-act=eSave]'); if(btn)btn.disabled=true;
+  const rm=curReport(); const btn=document.querySelector('[data-act=eSave]'); if(btn)btn.disabled=true;
   try{
-    await api('/rest/v1/rpc/manager_edit_report',{method:'POST',body:{p_id:r.id,p_data:{units:(r.data&&r.data.units)||[],findings:EDIT.findings}}});
+    const parts=rm._parts||[rm]; const own=u=>rm._owner?rm._owner(u):rm;
+    for(const p of parts){
+      const now=EDIT.findings.filter(f=>own(f.unitId)===p);
+      if(rm._parts){ const orig=((p.data&&p.data.findings)||[]).filter(f=>own(f.unitId)===p); if(JSON.stringify(orig)===JSON.stringify(now)) continue; }
+      const keep=rm._parts?((p.data&&p.data.findings)||[]).filter(f=>own(f.unitId)!==p):[];
+      await api('/rest/v1/rpc/manager_edit_report',{method:'POST',body:{p_id:p.id,p_data:{units:(p.data&&p.data.units)||[],findings:now.concat(keep)}}});
+    }
     REPORTS=await api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300');
     EDIT=null; toast('تم حفظ التعديلات'); render();
   }catch(e){ if(btn)btn.disabled=false; const x=el('eerr'); if(x) x.textContent=errTxt(e) }
 }
 function reportView(){
-  const r=REPORTS.find(x=>x.id===view.id); if(!r) return '<p>التقرير مش موجود</p>';
+  const r=curReport(); if(!r) return '<p>التقرير مش موجود</p>';
   const editing=!!(EDIT&&EDIT.id===r.id); const rr=editing?Object.assign({},r,{data:Object.assign({},r.data,{findings:EDIT.findings})}):r; const b=view.b=buildReport(rr,NAMES);
-  const canArea=ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED', canDept=ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED';
+  const wait=!!(r._waiting&&r._waiting.length); const canArea=ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED'&&!wait, canDept=ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED'&&!wait;
   const final=r.status==='FINAL_APPROVED';
   const editBar=!final&&canEditReport(r)?(editing?`<div class="card noprint" style="background:#fff3e0"><b>تعديل التقييم</b><div class="row wrap" style="margin-top:8px;gap:8px"><button data-act="eSave">حفظ التعديلات</button><button class="alt" data-act="eCancel">إلغاء</button></div>${addPanel(b)}<div class="err" id="eerr"></div></div>`:`<div class="noprint" style="margin:8px 0"><button data-act="eStart">تعديل التقرير (الأقسام والضوابط)</button></div>`):'';
   const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
@@ -395,13 +453,15 @@ function reportView(){
     h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div><div class="muted">${esc(v.category?v.category.name:'')}</div>
     <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
     ${editing?editBox(v):(v.finding.violationNote?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(v.finding.violationNote)}</div>`:'')}
-    ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
+    ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
+  const partsInfo=(r._parts||wait)?`<div class="card">${(r._parts||[]).map((x,i)=>`<div class="row" style="margin:4px 0"><b class="grow">${esc(r._labels[i])} — ${esc(NAMES[x.inspector_id]||'')}</b><span class="chip st-${x.status}">${ST_SHORT[x.status]||x.status}</span></div>`).join('')}${wait?`<div class="err" style="margin-top:6px">⏳ في انتظار تقرير: ${r._waiting.map(w=>esc((SEAT_AR[w.seat]||'')+' — '+w.name)).join('، ')}</div>`:''}</div>`:'';
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
   <div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(b.branch)}</h2><span class="chip st-${r.status}">${ST_SHORT[r.status]}</span></div>
     <p>نوع التقييم: <b>${esc(b.templateLabel||'تقييم المعارض الأوف لاين')}</b><br>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p>${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="muted" style="margin-bottom:4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div>`:''}</div>
+  ${partsInfo}
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
   ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>'}
   <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="prog ${sc(b.secAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.secAvg||0))}%"></i></div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="prog ${sc(b.admAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.admAvg||0))}%"></i></div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
@@ -417,10 +477,10 @@ function reportView(){
     <p><button class="alt" data-act="print">طباعة / حفظ PDF</button> <button class="alt" data-act="csv">تنزيل Excel (CSV)</button> ${final?'':'<button class="alt" data-act="zip">تنزيل الصور (ZIP)</button>'}</p>
     <div class="err" id="rerr"></div></div>`;
 }
-function afterReport(){ const r=REPORTS.find(x=>x.id===view.id); if(r&&r.status!=='FINAL_APPROVED') hydrateMedia(r); }
+function afterReport(){ const r=curReport(); if(r&&r.status!=='FINAL_APPROVED') hydrateMedia(r); }
 async function getMedia(r,p){
   if(MEDIA.has(p.id)) return MEDIA.get(p.id);
-  const key=`${r.inspector_id}/${r.id}/${p.id}.${p.ext||'jpg'}`;
+  const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
   let blob=null;
   try{   // الوسائط الجديدة على Backblaze B2 (رابط مؤقت من وظيفة swift-worker)
     const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
@@ -434,13 +494,17 @@ async function getMedia(r,p){
 }
 async function hydrateMedia(r){
   const nodes=[...document.querySelectorAll('[data-media]')]; let i=0;
-  const worker=async()=>{while(i<nodes.length){const n=nodes[i++];try{const blob=await getMedia(r,{id:n.dataset.media,ext:n.dataset.ext});const url=URL.createObjectURL(blob);
+  const worker=async()=>{while(i<nodes.length){const n=nodes[i++];try{const blob=await getMedia(r,{id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null});const url=URL.createObjectURL(blob);
     n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){n.textContent='غير متاحة'}}};
   await Promise.all([worker(),worker(),worker(),worker()]);
 }
-async function review(action,note){
-  const r=REPORTS.find(x=>x.id===view.id);
-  await api('/rest/v1/rpc/review_report',{method:'POST',body:{p_id:r.id,p_action:action,p_note:note||null}});
+async function review(action,note,only){
+  const rm=curReport(); const parts=rm._parts||[rm];
+  const FROM={REVIEWED:['SUBMITTED','UNDER_REVIEW'],FINAL_APPROVED:['REVIEWED'],RETURN_TO_AREA:['REVIEWED'],RETURNED:['SUBMITTED','UNDER_REVIEW','REVIEWED']};
+  if(rm._waiting&&rm._waiting.length&&action!=='RETURNED') throw {msg:'في انتظار تقرير الجزء التاني من الزيارة'};
+  const targets=parts.filter(p=>(!only||only.includes(p.id))&&(FROM[action]||[]).includes(p.status));
+  if(!targets.length) throw {msg:'مفيش جزء مناسب للإجراء ده (حالته اتغيّرت)'};
+  for(const p of targets) await api('/rest/v1/rpc/review_report',{method:'POST',body:{p_id:p.id,p_action:action,p_note:note||null}});
   REPORTS=await api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300');
 }
 async function doApprove(a){ try{ await review(a); toast('تم'); render() }catch(e){ el('rerr').textContent=errTxt(e) } }
@@ -449,8 +513,8 @@ async function doReturnArea(){
   try{await review('RETURN_TO_AREA',n);closeModal();toast('اترجّع لمدير المنطقة');render()}catch(e){el('rerr2').textContent=errTxt(e)}
 }
 async function doReturn(){
-  const n=el('rnote').value.trim();
-  try{await review('RETURNED',n);closeModal();toast('اترجّع للمراقب');render()}catch(e){el('rerr2').textContent=errTxt(e)}
+  const n=el('rnote').value.trim(); const sel=el('rpart'); const only=sel&&sel.value?sel.value.split(','):null;
+  try{await review('RETURNED',n,only);closeModal();toast('اترجّع للمراقب');render()}catch(e){el('rerr2').textContent=errTxt(e)}
 }
 function mediaName(b,v,k,p,used){
   const cl=t=>String(t||'').replace(/[\\/:*?"<>|]/g,'_').trim();
@@ -476,7 +540,7 @@ async function doFinal(){
     if(files.length) download(makeZip(files),`Raneen_${r.report_number}_photos.zip`);
     await review('FINAL_APPROVED');
     for(const v of b.viol) for(const p of v.photos){
-      const key=`${r.inspector_id}/${r.id}/${p.id}.${p.ext||'jpg'}`;
+      const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
       try{await api('/functions/v1/swift-worker',{method:'POST',body:{action:'delete',path:key}})}catch(e){}   // Backblaze
       try{await api(`/storage/v1/object/${CFG.bucket}/${key}`,{method:'DELETE'})}catch(e){}                  // تقارير قديمة على Supabase
     }
@@ -839,7 +903,8 @@ const ACT={
   tab:d=>{EDIT=null;view={tab:d.id};render()}, fpend:d=>{FILTER.pending=d.id==='1';render()},
   openReport:d=>{EDIT=null;view={tab:'report',id:d.id};render();window.scrollTo(0,0)},
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
-  eStart:()=>{const r=REPORTS.find(x=>x.id===view.id); if(!r)return; EDIT={id:r.id,findings:JSON.parse(JSON.stringify((r.data&&r.data.findings)||[])),addUnit:null,addCtl:null}; render()},
+  seatCancel:d=>seatCancel(d.id),
+  eStart:()=>{const r=curReport(); if(!r)return; EDIT={id:r.id,findings:JSON.parse(JSON.stringify((r.data&&r.data.findings)||[])),addUnit:null,addCtl:null}; render()},
   eCancel:()=>{EDIT=null;render()},
   eZero:d=>{const f=EDIT&&EDIT.findings.find(x=>x.id===d.id); if(f){f.violationCount=0;render()}},
   eAdd:()=>{
@@ -852,9 +917,9 @@ const ACT={
     toast('اتضافت — اضغط حفظ التعديلات'); render()},
   eSave:()=>eSave(),
   retAreaForm:()=>modal(`<h3>سبب الإعادة لمدير المنطقة</h3><textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturnArea">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
-  retForm:()=>modal(`<h3>سبب الإعادة</h3><textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
+  retForm:()=>modal(`<h3>سبب الإعادة</h3>${retPartSel()}<textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:()=>window.print(), csv:()=>csvReport(), zip:()=>doZip(),
-  playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
+  playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,view.b.viol.flatMap(v=>v.photos).find(p=>p.id===d.vid)||{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),
   branchForm:d=>branchForm(d.id), saveBranch:d=>saveBranch(d.id), delBranch:d=>delBranch(d.id),

@@ -205,7 +205,7 @@ function buildReport(r, names){
     admAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='ADMINISTRATION').map(l=>l.percent)),
     mainAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)==='MAIN').map(l=>l.percent)),
     supAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)==='SUPPORT').map(l=>l.percent)),
-    finAvg: avg(lines.filter(l=>!l.na&&l.percent!=null).map(l=>l.percent))
+    finAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)!=='SUPPORT').map(l=>l.percent))
   };
 }
 if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,weightSum,unitControls};

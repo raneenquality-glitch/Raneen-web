@@ -157,8 +157,8 @@ function computeUnit(unit, findings){
   return {planned, actual, percent: planned>0? actual/planned*100 : 0, violCount};
 }
 const avg=a=>a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
-function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = أقسام التشغيل (بما فيها الخدمات ومدير المعرض)، SUPPORT = الإدارات المساعدة
-function unitGroup(u){ return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
+function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = أقسام التشغيل (بما فيها الخدمات)، MANAGER = مدير المعرض (في النتيجة النهائية بس)، SUPPORT = الإدارات المساعدة
+function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==='zayed_branch_manager') return 'MANAGER'; return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
   const na=new Set((d.units||[]).filter(u=>u.isNA).map(u=>u.unitId));

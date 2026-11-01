@@ -157,7 +157,9 @@ function computeUnit(unit, findings){
   return {planned, actual, percent: planned>0? actual/planned*100 : 0, violCount};
 }
 const avg=a=>a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
-function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} function buildReport(r, names){
+function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = الأقسام الرئيسية (بدون مدير المعرض)، SUPPORT = الإدارات المساعدة، MANAGER = مدير المعرض (داخل النتيجة النهائية بس)
+function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==='zayed_branch_manager') return 'MANAGER'; if(id==='zayed_services') return 'MAIN'; return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
+function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
   const na=new Set((d.units||[]).filter(u=>u.isNA).map(u=>u.unitId));
   const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));});
@@ -200,7 +202,10 @@ function templateLabel(id){return id==='smart'?'تقييم معارض سمارت
     branch:(byId(C.branches,r.branch_id)||{}).name||'فرع محذوف',
     inspector:r._inspNames||(names&&names[r.inspector_id])||'',
     secAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='SECTION').map(l=>l.percent)),
-    admAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='ADMINISTRATION').map(l=>l.percent))
+    admAvg: avg(lines.filter(l=>!l.na&&l.unit.kind==='ADMINISTRATION').map(l=>l.percent)),
+    mainAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)==='MAIN').map(l=>l.percent)),
+    supAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)==='SUPPORT').map(l=>l.percent)),
+    finAvg: avg(lines.filter(l=>!l.na&&l.percent!=null).map(l=>l.percent))
   };
 }
 if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,weightSum,unitControls};
@@ -247,7 +252,7 @@ const visitOf=r=>VISIT[String(((r.data||{}).inspection||{}).visitNumber||'')]||'
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('id'+Date.now()+Math.random().toString(16).slice(2));
 
 let S=JSON.parse(localStorage.getItem('rq_sess')||'null'), ME=null, REPORTS=[], PROFILES=[], NAMES={};
-let EDIT=null; let SEATS=[]; let view={tab:'reports'}, FILTER={pending:true,q:''}; const MEDIA=new Map();
+let EDIT=null; let SEATS=[]; let view={tab:'reports'}, FILTER={pending:true,q:'',month:'all'}; const MEDIA=new Map();
 
 function toast(m,err){const t=el('toast');t.textContent=m;t.style.background=err?'#b00020':'#222';t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',err?6000:3000)}
 function modal(html){const m=el('modal');m.innerHTML=`<div class="box">${html}</div>`;m.classList.remove('hidden')}
@@ -390,6 +395,31 @@ async function seatCancel(id){
     SEATS=await api('/rest/v1/visit_seats?select=*').catch(()=>[]); toast('اتلغى المقعد'); render();
   }catch(e){ const x=el('serr'); const m=(e&&e.msg)||''; if(x) x.textContent=/already submitted/i.test(m)?'الجزء ده اتبعت خلاص، مينفعش يتلغي.':errTxt(e) }
 }
+
+// ---------- لوحة النتائج: لكل نوع تقييم (ديجيتال / أوف لاين / سمارت) نتيجة مرحلية ونتيجة نهائية، وللإدارات المساعدة نتيجة نهائية واحدة ----------
+const SEG_DEF=[['digital','معارض الديجيتال'],['offline','المعارض الأوف لاين'],['smart','معارض سمارت']];
+const segOf=r=>{const t=((r.data||{}).inspection||{}).templateId||''; return t==='zayed'?'smart':(t==='main'||t===''?'offline':t)};
+const monthOf=r=>{const ms=Number(((r.data||{}).inspection||{}).visitDate)||Date.parse(r.created_at)||0; return ms?new Date(ms).toLocaleDateString('en-CA',{timeZone:'Africa/Cairo'}).slice(0,7):''};
+const scBox=(v,label)=>`<div class="card kpi"><div class="big ${sc(v)}">${pctTxt(v)}</div><div class="prog ${sc(v)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,v||0))}%"></i></div><div class="muted">${label}</div></div>`;
+function scoreStats(){
+  const vis=REPORTS.filter(isPrimary).map(compose).filter(r=>r.status!=='DRAFT');
+  const months=[...new Set(vis.map(monthOf).filter(Boolean))].sort().reverse();
+  const inMonth=vis.filter(r=>FILTER.month==='all'||monthOf(r)===FILTER.month);
+  const waiting=inMonth.filter(r=>r._waiting&&r._waiting.length).length;
+  const use=inMonth.filter(r=>!(r._waiting&&r._waiting.length));
+  const A=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const acc={}; SEG_DEF.forEach(([k])=>acc[k]={n:0,main:[],fin:[]}); const sup=[];
+  use.forEach(r=>{const b=buildReport(r,NAMES); const a=acc[segOf(r)]; if(!a) return; a.n++; if(b.mainAvg!=null)a.main.push(b.mainAvg); if(b.finAvg!=null)a.fin.push(b.finAvg); if(b.supAvg!=null)sup.push(b.supAvg)});
+  return {months,waiting,seg:SEG_DEF.map(([k,n])=>({k,n,cnt:acc[k].n,main:A(acc[k].main),fin:A(acc[k].fin)})),sup:A(sup),supN:sup.length};
+}
+function scorePanel(){
+  if(!['ADMIN','AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
+  const st=scoreStats();
+  return `<div class="card noprint"><div class="row wrap" style="gap:8px"><b class="grow">النتايج حسب نوع التقييم</b><select id="scMonth" style="width:auto">${[['all','كل الفترات']].concat(st.months.map(m=>[m,m])).map(x=>`<option value="${x[0]}" ${FILTER.month===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>`+
+    st.seg.map(s=>`<h3 style="margin:12px 0 6px">${s.n} <span class="muted">(${s.cnt} زيارة)</span></h3><div class="kpis">${scBox(s.main,'النتيجة المرحلية (الأقسام الرئيسية)')}${scBox(s.fin,'النتيجة النهائية (كل الأقسام)')}</div>`).join('')+
+    `<h3 style="margin:12px 0 6px">الإدارات المساعدة <span class="muted">(${st.supN} زيارة)</span></h3><div class="kpis">${scBox(st.sup,'النتيجة النهائية (كل الإدارات المساعدة مجمّعة)')}</div>`+
+    (st.waiting?`<div class="muted" style="margin-top:6px">⏳ ${st.waiting} زيارة مستنية الجزء التاني ومش محسوبة لحد ما تكتمل.</div>`:'')+`</div>`;
+}
 const needs=r=>(ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED')||(ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED');
 
 // ---------- التقارير ----------
@@ -404,7 +434,7 @@ function reportsView(){
     <div class="card tile t-warn"><div class="big">${pend||cnt('SUBMITTED')+cnt('REVIEWED')}</div><div class="muted">${mgr?'تحتاج إجراء':'قيد المراجعة'}</div></div>
     <div class="card tile t-bad"><div class="big">${cnt('RETURNED')}</div><div class="muted">معادة للمراقب</div></div>
     <div class="card tile t-good"><div class="big">${cnt('FINAL_APPROVED')}</div><div class="muted">معتمدة نهائيًا</div></div></div>`;
-  return kp+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
+  return kp+scorePanel()+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
      <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(r._inspNames||NAMES[r.inspector_id]||'')}${r._waiting&&r._waiting.length?' · ⏳ في انتظار '+esc(r._waiting.map(w=>w.name).join('، ')):''}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
@@ -464,7 +494,7 @@ function reportView(){
   ${partsInfo}
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
   ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>'}
-  <div class="kpis"><div class="card kpi"><div class="big ${sc(b.secAvg)}">${pctTxt(b.secAvg)}</div><div class="prog ${sc(b.secAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.secAvg||0))}%"></i></div><div class="muted">متوسط الأقسام</div></div><div class="card kpi"><div class="big ${sc(b.admAvg)}">${pctTxt(b.admAvg)}</div><div class="prog ${sc(b.admAvg)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,b.admAvg||0))}%"></i></div><div class="muted">متوسط الإدارات المساعدة</div></div></div>
+  <div class="kpis">${scBox(b.mainAvg,'النتيجة المرحلية (الأقسام الرئيسية)')}${scBox(b.finAvg,'النتيجة النهائية (كل الأقسام)')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
   ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td></tr>`).join('')}</table></div>
@@ -930,6 +960,7 @@ const ACT={
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const f=ACT[b.dataset.act];if(f)f(b.dataset,b)});
 document.addEventListener('change',e=>{
+  if(e.target.id==='scMonth'){FILTER.month=e.target.value;render();return}
   if(EDIT){ if(e.target.dataset&&e.target.dataset.ef!==undefined){render();return}
     if(e.target.id==='eaUnit'){EDIT.addUnit=e.target.value;EDIT.addCtl=null;render();return}
     if(e.target.id==='eaCtl'){EDIT.addCtl=e.target.value;render();return} }if(e.target.id==='cfile'){const f=e.target.files&&e.target.files[0];e.target.value='';sendChatPhoto(f)}});

@@ -157,8 +157,8 @@ function computeUnit(unit, findings){
   return {planned, actual, percent: planned>0? actual/planned*100 : 0, violCount};
 }
 const avg=a=>a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
-function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = الأقسام الرئيسية (بدون مدير المعرض)، SUPPORT = الإدارات المساعدة، MANAGER = مدير المعرض (داخل النتيجة النهائية بس)
-function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==='zayed_branch_manager') return 'MANAGER'; if(id==='zayed_services') return 'MAIN'; return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
+function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = أقسام التشغيل (بما فيها الخدمات ومدير المعرض)، SUPPORT = الإدارات المساعدة
+function unitGroup(u){ return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
   const na=new Set((d.units||[]).filter(u=>u.isNA).map(u=>u.unitId));
@@ -416,7 +416,7 @@ function scorePanel(){
   if(!['ADMIN','AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
   const st=scoreStats();
   return `<div class="card noprint"><div class="row wrap" style="gap:8px"><b class="grow">النتايج حسب نوع التقييم</b><select id="scMonth" style="width:auto">${[['all','كل الفترات']].concat(st.months.map(m=>[m,m])).map(x=>`<option value="${x[0]}" ${FILTER.month===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>`+
-    st.seg.map(s=>`<h3 style="margin:12px 0 6px">${s.n} <span class="muted">(${s.cnt} زيارة)</span></h3><div class="kpis">${scBox(s.main,'النتيجة المرحلية (الأقسام الرئيسية)')}${scBox(s.fin,'النتيجة النهائية (كل الأقسام)')}</div>`).join('')+
+    st.seg.map(s=>`<h3 style="margin:12px 0 6px">${s.n} <span class="muted">(${s.cnt} زيارة)</span></h3><div class="kpis">${scBox(s.main,'متوسط أقسام التشغيل')}${scBox(s.fin,'النتيجة النهائية')}</div>`).join('')+
     `<h3 style="margin:12px 0 6px">الإدارات المساعدة <span class="muted">(${st.supN} زيارة)</span></h3><div class="kpis">${scBox(st.sup,'النتيجة النهائية (كل الإدارات المساعدة مجمّعة)')}</div>`+
     (st.waiting?`<div class="muted" style="margin-top:6px">⏳ ${st.waiting} زيارة مستنية الجزء التاني ومش محسوبة لحد ما تكتمل.</div>`:'')+`</div>`;
 }
@@ -494,7 +494,7 @@ function reportView(){
   ${partsInfo}
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
   ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>'}
-  <div class="kpis">${scBox(b.mainAvg,'النتيجة المرحلية (الأقسام الرئيسية)')}${scBox(b.finAvg,'النتيجة النهائية (كل الأقسام)')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>
+  <div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
   ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td></tr>`).join('')}</table></div>

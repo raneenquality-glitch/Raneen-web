@@ -89,6 +89,7 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
 .cban{background:var(--acc-l);color:#5a3a00;padding:6px 12px;font-size:13px}
 @media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
+.snd{font-size:12px;font-weight:800;color:var(--pri);margin-bottom:2px}
 </style>
 </head>
 <body>
@@ -735,9 +736,10 @@ async function hideCtl(id){const k=byId(C.controls,id);if(!k||!confirm(`تأكي
 
 // ---------- الرسائل (شات بين المستخدمين) ----------
 // نص فقط حاليًا. التسليم بالـ polling (٣ ثواني والشات مفتوح، ٣٠ ثانية في باقي الصفحات). الأمان على السيرفر بـ RLS.
-const CH={msgs:[],auto:{},cursor:'1970-01-01T00:00:00Z',q:'',tick:0,busy:false,ens:new Set()};
+const TEAM='team';
+const CH={msgs:[],auto:{},reads:{},cursor:'1970-01-01T00:00:00Z',q:'',tick:0,busy:false,ens:new Set()};
 const CB=new Map(); // مسار المرفق → blob URL (كاش)
-function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.q='';CH.ens=new Set();CB.forEach(u=>URL.revokeObjectURL(u));CB.clear()}
+function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.reads={};CH.q='';CH.ens=new Set();CB.forEach(u=>URL.revokeObjectURL(u));CB.clear()}
 const cidOf=(a,b)=>[a,b].sort().join('_');
 const pad2=n=>String(n).padStart(2,'0');
 const fmtT=ms=>{const d=new Date(ms);return pad2(d.getHours())+':'+pad2(d.getMinutes())};
@@ -753,62 +755,44 @@ function addMsg(r){
   if(i>=0) CH.msgs[i]=Object.assign(CH.msgs[i],m,{read:m.read||CH.msgs[i].read}); else CH.msgs.push(m);
 }
 function chatExpire(){const now=Date.now();CH.msgs=CH.msgs.filter(m=>{const h=CH.auto[m.cid];return !h||m.at>=now-h*36e5})}
-const peerOf=m=>m.from===ME.id?m.to:m.from;
 const pname=id=>NAMES[id]||'مستخدم محذوف';
 async function chatSync(){
   if(CH.busy||!ME||!S) return; CH.busy=true;
   try{
-    const cv=await api('/rest/v1/chat_conversations?select=id,auto_delete_hours');
+    const cv=await api('/rest/v1/chat_conversations?select=id,auto_delete_hours&id=eq.'+TEAM);
     CH.auto={}; cv.forEach(c=>{if(c.auto_delete_hours) CH.auto[c.id]=c.auto_delete_hours});
     for(;;){
-      const rows=await api('/rest/v1/chat_messages?select=id,conversation_id,sender_id,receiver_id,type,body,media_path,created_at,read_at&created_at=gt.'+encodeURIComponent(CH.cursor)+'&order=created_at.asc&limit=500');
+      const rows=await api('/rest/v1/chat_messages?select=id,conversation_id,sender_id,receiver_id,type,body,media_path,created_at,read_at&conversation_id=eq.'+TEAM+'&created_at=gt.'+encodeURIComponent(CH.cursor)+'&order=created_at.asc&limit=500');
       rows.forEach(r=>{addMsg(r);CH.cursor=r.created_at});
       if(rows.length<500) break;
     }
-    // علامة "اتقرت" على رسايلي (بنسأل بس عن اللي لسه ما اتقراش)
-    const ids=CH.msgs.filter(m=>m.from===ME.id&&!m.read).slice(-100).map(m=>m.id);
-    if(ids.length){const rr=await api('/rest/v1/chat_messages?select=id,read_at&id=in.('+ids.join(',')+')&read_at=not.is.null');
-      rr.forEach(r=>{const m=CH.msgs.find(x=>x.id===r.id);if(m)m.read=Date.parse(r.read_at)})}
+    // آخر وقت قراءة لكل عضو (منه بنعرف مين شاف الرسالة)
+    const rd=await api('/rest/v1/chat_team_reads?select=user_id,last_read_at');
+    const m={}; rd.forEach(r=>{if(r.last_read_at) m[r.user_id]=Date.parse(r.last_read_at)}); CH.reads=m;
     chatExpire();
   }catch(e){ /* فشل مؤقت: المحاولة الجاية */ }
   finally{ CH.busy=false }
-  if(view.tab==='chat'&&view.peer) await chatMarkRead();
+  if(view.tab==='chat') await chatMarkRead();
   chatUI();
 }
 async function chatMarkRead(){
-  const cid=cidOf(ME.id,view.peer), un=CH.msgs.filter(m=>m.cid===cid&&m.to===ME.id&&!m.read);
-  if(!un.length) return;
+  const mine=CH.reads[ME.id]||0, newest=CH.msgs.filter(m=>m.from!==ME.id).reduce((a,m)=>Math.max(a,m.at),0);
+  if(newest<=mine) return;
   try{
-    await api('/rest/v1/chat_messages?conversation_id=eq.'+cid+'&receiver_id=eq.'+ME.id+'&read_at=is.null',{method:'PATCH',headers:{Prefer:'return=minimal'},body:{read_at:new Date().toISOString()}});
-    const t=Date.now(); un.forEach(m=>m.read=t);
+    await api('/rest/v1/chat_team_reads?on_conflict=user_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:{user_id:ME.id,last_read_at:new Date(Math.max(Date.now(),newest)).toISOString()}});
+    CH.reads[ME.id]=Math.max(Date.now(),newest);
   }catch(e){}
 }
-async function ensureConv(cid){
-  if(CH.ens.has(cid)) return;
-  const [a,b]=cid.split('_');
-  await api('/rest/v1/chat_conversations?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:{id:cid,user_a:a,user_b:b}});
-  CH.ens.add(cid);
-}
 async function sendChat(){
-  const inp=el('cin'); if(!inp||!view.peer) return;
+  const inp=el('cin'); if(!inp) return;
   const t=inp.value.trim(); if(!t) return;
-  const cid=cidOf(ME.id,view.peer), btn=el('csend'); inp.value=''; btn.disabled=true;
+  const btn=el('csend'); inp.value=''; btn.disabled=true;
   try{
-    await ensureConv(cid);
     const rows=await api('/rest/v1/chat_messages?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},
-      body:{id:uuid(),conversation_id:cid,sender_id:ME.id,receiver_id:view.peer,type:'TEXT',body:t}});
+      body:{id:uuid(),conversation_id:TEAM,sender_id:ME.id,receiver_id:null,type:'TEXT',body:t}});
     if(rows&&rows[0]) addMsg(rows[0]);
   }catch(e){ inp.value=t; toast(errTxt(e),true) }
   finally{ btn.disabled=false; chatUI(true); inp.focus() }
-}
-async function toggleAuto(){
-  if(!view.peer) return; const cid=cidOf(ME.id,view.peer), on=!!CH.auto[cid];
-  try{
-    await ensureConv(cid);
-    await api('/rest/v1/chat_conversations?id=eq.'+cid,{method:'PATCH',headers:{Prefer:'return=minimal'},body:{auto_delete_hours:on?null:24}});
-    if(on) delete CH.auto[cid]; else CH.auto[cid]=24;
-    chatExpire(); chatUI(); toast(on?'اتلغى الحذف التلقائي':'الرسائل هتتمسح بعد 24 ساعة');
-  }catch(e){ toast(errTxt(e),true) }
 }
 async function chatBlob(path){
   if(CB.has(path)) return CB.get(path);
@@ -850,75 +834,51 @@ function prepPhoto(file){
   });
 }
 async function sendChatPhoto(file){
-  if(!file||!view.peer) return;
-  const cid=cidOf(ME.id,view.peer), id=uuid(), path=cid+'/'+id+'.jpg';
+  if(!file) return;
+  const id=uuid(), path=TEAM+'/'+id+'.jpg';
   toast('جاري إرسال الصورة...');
   try{
     const blob=await prepPhoto(file);
-    await ensureConv(cid);
     await uploadChat(path,blob);
     const rows=await api('/rest/v1/chat_messages?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},
-      body:{id,conversation_id:cid,sender_id:ME.id,receiver_id:view.peer,type:'PHOTO',media_path:path}});
+      body:{id,conversation_id:TEAM,sender_id:ME.id,receiver_id:null,type:'PHOTO',media_path:path}});
     if(rows&&rows[0]) addMsg(rows[0]);
     chatUI(true); toast('اتبعتت');
   }catch(e){ toast(errTxt(e),true) }
 }
+// مجموعة العمل الواحدة لكل المستخدمين (التعليمات والرسائل الرسمية). مفيش محادثات خاصة.
 function chatView(){
-  if(view.peer){
-    return `<div class="card" style="padding:0;overflow:hidden"><div class="row chead"><button class="alt" data-act="chatBack">رجوع</button>
-      <div class="av" style="width:38px;height:38px">${esc(pname(view.peer).trim().charAt(0)||'؟')}</div>
-      <div class="grow"><b>${esc(pname(view.peer))}</b><div class="muted">${ROLE_AR[(PROFILES.find(p=>p.id===view.peer)||{}).role]||''}</div></div>
-      <button class="alt" data-act="chatAuto" id="cauto"></button></div>
-      <div id="cban"></div><div class="cmsgs" id="cmsgs"></div>
-      <div class="cbar"><button class="alt att" data-act="chatPick" title="إرسال صورة">📷</button><input type="file" id="cfile" accept="image/*" hidden><textarea id="cin" rows="1" placeholder="اكتب رسالة"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
-  }
-  if(view.pick){
-    return `<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">محادثة جديدة</h2><button class="alt" data-act="chatBack">رجوع</button></div>
-      <input id="cq" placeholder="ابحث بالاسم" value="${esc(CH.q)}"><div class="card" style="padding:0" id="cpeers"></div>`;
-  }
-  return `<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">الرسائل</h2><button data-act="chatNew">+ محادثة جديدة</button></div>
-    <div class="card" style="padding:0" id="clist"></div>`;
+  const n=PROFILES.filter(p=>p.is_active).length;
+  return `<div class="card" style="padding:0;overflow:hidden"><div class="row chead"><div class="av" style="width:38px;height:38px">👥</div>
+    <div class="grow"><b>مجموعة العمل</b><div class="muted">${n} عضو · التعليمات والرسائل الرسمية للفريق كله</div></div></div>
+    <div id="cban"></div><div class="cmsgs" id="cmsgs"></div>
+    <div class="cbar"><button class="alt att" data-act="chatPick" title="إرسال صورة">📷</button><input type="file" id="cfile" accept="image/*" hidden><textarea id="cin" rows="1" placeholder="اكتب رسالة للفريق"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
 }
 function chatUI(forceBottom){
   if(!ME) return;
-  const un=CH.msgs.filter(m=>m.to===ME.id&&!m.read).length, b=el('cbadge');
+  const myRead=CH.reads[ME.id]||0, un=CH.msgs.filter(m=>m.from!==ME.id&&m.at>myRead).length, b=el('cbadge');
   if(b){b.textContent=un?(un>99?'99+':un):'';b.style.display=un?'inline-block':'none'}
   if(view.tab!=='chat') return;
-  if(view.peer){
-    const cid=cidOf(ME.id,view.peer), on=!!CH.auto[cid], box=el('cmsgs'); if(!box) return;
-    el('cauto').textContent=on?'✓ حذف بعد 24 ساعة':'حذف بعد 24 ساعة';
-    el('cban').innerHTML=on?'<div class="cban">⏱ الرسائل في المحادثة دي بتتمسح تلقائيًا بعد 24 ساعة</div>':'';
-    const list=CH.msgs.filter(m=>m.cid===cid).sort((a,b)=>a.at-b.at);
-    const sig=cid+'|'+list.map(m=>m.id+(m.read?'r':'')).join(',');
-    if(!forceBottom&&box.dataset.sig===sig){ hydrateChat(); return }
-    const first=!box.dataset.ready, atBottom=first||forceBottom||box.scrollHeight-box.scrollTop-box.clientHeight<80;
-    let last='',h='';
-    list.forEach(m=>{
-      const k=dkey(m.at); if(k!==last){h+=`<div class="dsep">${esc(dlabel(m.at))}</div>`;last=k}
-      const mine=m.from===ME.id;
-      const body=m.type==='TEXT'?esc(m.body).replace(/\n/g,'<br>')
-        :!m.path?'📎 المرفق غير متاح'
-        :m.type==='VIDEO'?`<div class="cvid" data-act="chatMedia" data-p="${esc(m.path)}" data-t="VIDEO">▶ فيديو</div>`
-        :`<img class="cimg" alt="" data-cm="${esc(m.path)}" data-act="chatMedia" data-p="${esc(m.path)}" data-t="PHOTO">`;
-      h+=`<div class="bub ${mine?'me':''}"><div>${body}</div><small class="${mine&&m.read?'rd':''}">${fmtT(m.at)}${mine?(m.read?' ✓✓':' ✓'):''}</small></div>`;
-    });
-    box.innerHTML=h||'<div class="muted" style="text-align:center;margin:auto">ابدأ المحادثة بكتابة رسالة.</div>'; box.dataset.ready='1'; box.dataset.sig=sig;
-    hydrateChat();
-    if(atBottom) box.scrollTop=box.scrollHeight;
-  }else if(view.pick){
-    const c=el('cpeers'); if(!c) return;
-    const list=PROFILES.filter(p=>p.is_active&&p.id!==ME.id&&(!CH.q||normAr(p.name).includes(normAr(CH.q))));
-    c.innerHTML=list.map(p=>`<div class="crow" data-act="chatOpen" data-id="${esc(p.id)}"><div class="av">${esc(p.name.trim().charAt(0)||'؟')}</div><div class="grow"><b>${esc(p.name)}</b><div class="muted">${ROLE_AR[p.role]||''}</div></div></div>`).join('')||'<p class="muted" style="padding:14px">مفيش مستخدمين متاحين.</p>';
-  }else{
-    const c=el('clist'); if(!c) return; const groups=new Map();
-    CH.msgs.forEach(m=>{const g=groups.get(m.cid)||{peer:peerOf(m),last:m,un:0};if(m.at>=g.last.at)g.last=m;if(m.to===ME.id&&!m.read)g.un++;groups.set(m.cid,g)});
-    const rows=[...groups.values()].sort((a,b)=>b.last.at-a.last.at);
-    c.innerHTML=rows.map(g=>{const m=g.last,pv=(m.from===ME.id?'أنت: ':'')+(m.type==='TEXT'?m.body:m.type==='VIDEO'?'🎥 فيديو':'📷 صورة');
-      return `<div class="crow" data-act="chatOpen" data-id="${esc(g.peer)}"><div class="av">${esc(pname(g.peer).trim().charAt(0)||'؟')}</div>
-        <div class="grow"><b>${esc(pname(g.peer))}</b><div class="pv ${g.un?'un':''}">${esc(pv)}</div></div>
-        <div style="text-align:left"><div class="muted" style="font-size:12px">${listT(m.at)}</div>${g.un?`<span class="cnt">${g.un}</span>`:''}</div></div>`}).join('')
-      ||'<p class="muted" style="padding:16px">مفيش محادثات لسه. اضغط «+ محادثة جديدة» عشان تبدأ.</p>';
-  }
+  const box=el('cmsgs'); if(!box) return;
+  const bn=el('cban'); if(bn) bn.innerHTML=CH.auto[TEAM]?'<div class="cban">⏱ الرسائل بتتمسح تلقائيًا بعد '+CH.auto[TEAM]+' ساعة</div>':'';
+  const seen=m=>Object.keys(CH.reads).filter(u=>u!==ME.id&&CH.reads[u]>=m.at).length;
+  const list=CH.msgs.filter(m=>m.cid===TEAM).sort((a,b)=>a.at-b.at);
+  const sig=list.map(m=>m.id+(m.from===ME.id?':'+seen(m):'')).join(',');
+  if(!forceBottom&&box.dataset.sig===sig){ hydrateChat(); return }
+  const first=!box.dataset.ready, atBottom=first||forceBottom||box.scrollHeight-box.scrollTop-box.clientHeight<80;
+  let last='',h='';
+  list.forEach(m=>{
+    const k=dkey(m.at); if(k!==last){h+=`<div class="dsep">${esc(dlabel(m.at))}</div>`;last=k}
+    const mine=m.from===ME.id, n=seen(m);
+    const body=m.type==='TEXT'?esc(m.body).replace(/\n/g,'<br>')
+      :!m.path?'📎 المرفق غير متاح'
+      :m.type==='VIDEO'?`<div class="cvid" data-act="chatMedia" data-p="${esc(m.path)}" data-t="VIDEO">▶ فيديو</div>`
+      :`<img class="cimg" alt="" data-cm="${esc(m.path)}" data-act="chatMedia" data-p="${esc(m.path)}" data-t="PHOTO">`;
+    h+=`<div class="bub ${mine?'me':''}">${mine?'':`<div class="snd">${esc(pname(m.from))}</div>`}<div>${body}</div><small class="${mine&&n?'rd':''}">${fmtT(m.at)}${mine?(n?` · 👁 ${n}`:' ✓'):''}</small></div>`;
+  });
+  box.innerHTML=h||'<div class="muted" style="text-align:center;margin:auto">لسه مفيش رسائل. ابدأ بكتابة أول رسالة للفريق.</div>'; box.dataset.ready='1'; box.dataset.sig=sig;
+  hydrateChat();
+  if(atBottom) box.scrollTop=box.scrollHeight;
 }
 setInterval(()=>{ if(!ME||!S||document.hidden) return; CH.tick++; if(view.tab==='chat'||CH.tick%10===0) chatSync() },3000);
 
@@ -926,7 +886,7 @@ setInterval(()=>{ if(!ME||!S||document.hidden) return; CH.tick++; if(view.tab===
 const ACT={
   login:()=>doLogin(), changePw:()=>changePw(), close:()=>closeModal(), logout:()=>{closeModal();logoutLocal()},
   refresh:async()=>{try{await loadAll();render();toast('اتحدّث')}catch(e){toast(errTxt(e),true)}},
-  chatOpen:d=>{view={tab:'chat',peer:d.id};render();const b=el('cmsgs');if(b)b.scrollTop=b.scrollHeight},chatNew:()=>{view={tab:'chat',pick:true};render()},chatBack:()=>{view={tab:'chat'};render()},chatSend:()=>sendChat(),chatAuto:()=>toggleAuto(),chatPick:()=>el('cfile').click(),
+  chatSend:()=>sendChat(),chatPick:()=>el('cfile').click(),
   chatMedia:async d=>{try{toast('جاري التحميل...');const u=await chatBlob(d.p);
     modal(d.t==='VIDEO'?`<video src="${u}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`
       :`<img class="zoom" src="${u}"><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast('المرفق غير متاح (ممكن يكون انتهت مدته)',true)}},

@@ -279,6 +279,7 @@ async function api(path,o={}){
   const t=await r.text(); return t?JSON.parse(t):null;
 }
 const errTxt=e=>{const m=(e&&e.msg)||'';
+  if(/^media: /.test(m))return m.slice(7);
   if(/not found/i.test(m))return 'التقرير مش موجود على السيرفر';
   if(/not allowed/i.test(m))return 'غير مسموح بالعملية دي في الحالة الحالية ('+m.replace(/^.*\(/,'(')+'';
   if(/Invalid login/i.test(m)||e.code===400&&!m)return 'اسم المستخدم أو كلمة المرور غلط';
@@ -506,22 +507,24 @@ function afterReport(){ const r=curReport(); if(r) hydrateMedia(r); }
 async function getMedia(r,p){
   if(MEDIA.has(p.id)) return MEDIA.get(p.id);
   const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
-  let blob=null;
-  try{   // الوسائط الجديدة على Backblaze B2 (رابط مؤقت من وظيفة swift-worker)
+  let blob=null; const why=[];
+  try{   // رابط مؤقت من وظيفة swift-worker (Supabase لو لسه ما اتنقلش، أو Backblaze)
     const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
-    const res=await fetch(j.url); if(res.ok) blob=await res.blob();
-  }catch(e){ if(e&&e.code===410) throw e }   // 410 = الملف اتأرشف (عدّت 30 يوم)
+    const res=await fetch(j.url); if(res.ok) blob=await res.blob(); else why.push('التخزين رد '+res.status);
+  }catch(e){ if(e&&e.code===410) throw e;   // 410 = الملف اتأرشف (عدّت 30 يوم)
+    why.push('الوظيفة '+(e&&e.code!=null?e.code:'')+(e&&e.msg?' '+String(e.msg).slice(0,40):'')) }
   if(!blob){  // التقارير القديمة لسه على Supabase
-    const res=await api(`/storage/v1/object/authenticated/${CFG.bucket}/${key}`,{raw:true});
-    blob=await res.blob();
+    try{ const res=await api(`/storage/v1/object/authenticated/${CFG.bucket}/${key}`,{raw:true}); blob=await res.blob() }
+    catch(e){ why.push('Supabase '+(e&&e.code!=null?e.code:'')); throw {code:e&&e.code,msg:'media: '+why.join(' · ')} }
   }
   MEDIA.set(p.id,blob); return blob;
 }
 async function hydrateMedia(r){
-  const nodes=[...document.querySelectorAll('[data-media]')]; let i=0;
+  const nodes=[...document.querySelectorAll('[data-media]')]; let i=0,failed=0,why='';
   const worker=async()=>{while(i<nodes.length){const n=nodes[i++];try{const blob=await getMedia(r,{id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null});const url=URL.createObjectURL(blob);
-    n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة'}}};
+    n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){failed++; if(!why) why=String((e&&e.msg)||'').replace(/^media: /,''); n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة'}}};
   await Promise.all([worker(),worker(),worker(),worker()]);
+  if(failed&&why) toast('تعذّر تحميل '+failed+' ملف: '+why,true);
 }
 async function review(action,note,only){
   const rm=curReport(); const parts=rm._parts||[rm];

@@ -163,7 +163,7 @@ function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
   const na=new Set((d.units||[]).filter(u=>u.isNA).map(u=>u.unitId));
-  const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));});
+  const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));}).filter(u=>!r._viewer||(d.units||[]).some(x=>x.unitId===u.id));
   const reportUnitIds=new Set(reportUnits.map(u=>u.id));
   const lines=reportUnits.map(u=> na.has(u.id)? {unit:u,na:true} : Object.assign({unit:u,na:false}, computeUnit(u,(d.findings||[]).filter(f=>reportUnitIds.has(f.unitId)))));
   const photosBy={}; (d.photos||[]).forEach(p=>{ (photosBy[p.findingId]=photosBy[p.findingId]||[]).push(p); });
@@ -237,7 +237,7 @@ if (typeof module!=='undefined') module.exports.makeZip=makeZip;
 <script>
 // ======== الواجهة ========
 const CFG={url:"https://rdhmulfhwgdjtadpcsge.supabase.co",key:"sb_publishable_7zeqh0Qa5ppXCgqlohLVdA_JwtEEHoT",fn:"smart-processor",bucket:"report-photos",domain:"raneen.app"};
-const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"مدير إدارة",ADMIN:"مدير النظام"};
+const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"مدير إدارة",ADMIN:"مدير النظام",VIEWER:"مشاهد إدارة"};
 const ST={SUBMITTED:"مُرسل — بانتظار مدير المنطقة",REVIEWED:"تمت المراجعة — بانتظار مدير الإدارة",RETURNED:"أُعيد للمراقب",FINAL_APPROVED:"معتمد نهائيًا"};
 const ST_SHORT={SUBMITTED:"مُرسل",REVIEWED:"تمت المراجعة",RETURNED:"مُعاد",FINAL_APPROVED:"معتمد"};
 const ACT_AR={SUBMITTED:"إرسال التقرير",RESUBMITTED:"إعادة إرسال بعد التعديل",REVIEWED:"مراجعة واعتماد (مدير المنطقة)",RETURNED:"إعادة للتعديل",RETURN_TO_AREA:"إعادة إلى مدير المنطقة",EDITED:"تعديل المحتوى (مدير)",FINAL_APPROVED:"اعتماد نهائي"};
@@ -302,7 +302,7 @@ async function startSession(){
   ME=pr[0];
   if(ME.role==='INSPECTOR'){logoutLocal();el('lerr').textContent='النسخة دي للمديرين والأدمن. المراقب يستخدم تطبيق الموبايل.';return}
   if(ME.must_change){renderMustChange();return}
-  await loadAll(); view={tab:'reports'}; render(); chatSync();
+  await loadAll(); view={tab:'reports'}; render();
 }
 function renderLogin(){
   document.body.classList.add('loginbg');
@@ -323,12 +323,25 @@ async function changePw(){
   try{await api('/auth/v1/user',{method:'PUT',body:{password:a}});await api('/rest/v1/rpc/password_changed',{method:'POST',body:{}});ME.must_change=false;await loadAll();view={tab:'reports'};render()}
   catch(e){el('lerr').textContent=errTxt(e)}
 }
+async function viewerReports(){   // مشاهد الإدارة: التقارير المعتمدة نهائيًا وجزء إدارته بس (السيرفر بيفلتر)
+  let since=null,out=[];
+  for(let i=0;i<50;i++){
+    const rows=await api('/rest/v1/rpc/viewer_reports',{method:'POST',body:since?{p_since:since,p_limit:200}:{p_limit:200}});
+    if(!rows||!rows.length) break;
+    out=out.concat(rows);
+    const last=rows[rows.length-1].updated_at;
+    if(rows.length<200||!last||last===since) break;
+    since=last;
+  }
+  return out.map(r=>Object.assign({audit:[],visit_key:null,created_at:r.updated_at,_viewer:true},r)).sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at)));
+}
 async function loadAll(){
+  const viewer=!!ME&&ME.role==='VIEWER';
   const [cat,prof,reps,seats]=await Promise.all([
     api('/rest/v1/catalog_items?select=kind,id,data&order=kind,id'),
     api('/rest/v1/profiles?select=*'),
-    api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300'),
-    api('/rest/v1/visit_seats?select=*').catch(()=>[])]);
+    viewer?viewerReports():api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300'),
+    viewer?Promise.resolve([]):api('/rest/v1/visit_seats?select=*').catch(()=>[])]);
   setCatalog(cat); PROFILES=prof; NAMES=Object.fromEntries(prof.map(p=>[p.id,p.name])); REPORTS=reps; SEATS=Array.isArray(seats)?seats:[];
 }
 
@@ -336,7 +349,7 @@ async function loadAll(){
 function render(){
   document.body.classList.remove('loginbg');
   const admin=ME.role==='ADMIN';
-  const tabs=[['reports','التقارير'],['chat','الرسائل']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
+  const tabs=[['reports','التقارير']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
   const on=view.tab==='unit'?'catalog':view.tab==='report'?'reports':view.tab;
   el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''}</small>
     <button class="alt" data-act="refresh">تحديث</button><button class="alt" data-act="logout">خروج</button></header>
@@ -402,25 +415,6 @@ const SEG_DEF=[['digital','معارض الديجيتال'],['offline','المع�
 const segOf=r=>{const t=((r.data||{}).inspection||{}).templateId||''; return t==='zayed'?'smart':(t==='main'||t===''?'offline':t)};
 const monthOf=r=>{const ms=Number(((r.data||{}).inspection||{}).visitDate)||Date.parse(r.created_at)||0; return ms?new Date(ms).toLocaleDateString('en-CA',{timeZone:'Africa/Cairo'}).slice(0,7):''};
 const scBox=(v,label)=>`<div class="card kpi"><div class="big ${sc(v)}">${pctTxt(v)}</div><div class="prog ${sc(v)}" style="margin:6px 0"><i style="width:${Math.max(0,Math.min(100,v||0))}%"></i></div><div class="muted">${label}</div></div>`;
-function scoreStats(){
-  const vis=REPORTS.filter(isPrimary).map(compose).filter(r=>r.status!=='DRAFT');
-  const months=[...new Set(vis.map(monthOf).filter(Boolean))].sort().reverse();
-  const inMonth=vis.filter(r=>FILTER.month==='all'||monthOf(r)===FILTER.month);
-  const waiting=inMonth.filter(r=>r._waiting&&r._waiting.length).length;
-  const use=inMonth.filter(r=>!(r._waiting&&r._waiting.length));
-  const A=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
-  const acc={}; SEG_DEF.forEach(([k])=>acc[k]={n:0,main:[],fin:[]}); const sup=[];
-  use.forEach(r=>{const b=buildReport(r,NAMES); const a=acc[segOf(r)]; if(!a) return; a.n++; if(b.mainAvg!=null)a.main.push(b.mainAvg); if(b.finAvg!=null)a.fin.push(b.finAvg); if(b.supAvg!=null)sup.push(b.supAvg)});
-  return {months,waiting,seg:SEG_DEF.map(([k,n])=>({k,n,cnt:acc[k].n,main:A(acc[k].main),fin:A(acc[k].fin)})),sup:A(sup),supN:sup.length};
-}
-function scorePanel(){
-  if(!['ADMIN','AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
-  const st=scoreStats();
-  return `<div class="card noprint"><div class="row wrap" style="gap:8px"><b class="grow">النتايج حسب نوع التقييم</b><select id="scMonth" style="width:auto">${[['all','كل الفترات']].concat(st.months.map(m=>[m,m])).map(x=>`<option value="${x[0]}" ${FILTER.month===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>`+
-    st.seg.map(s=>`<h3 style="margin:12px 0 6px">${s.n} <span class="muted">(${s.cnt} زيارة)</span></h3><div class="kpis">${scBox(s.main,'متوسط أقسام التشغيل')}${scBox(s.fin,'النتيجة النهائية')}</div>`).join('')+
-    `<h3 style="margin:12px 0 6px">الإدارات المساعدة <span class="muted">(${st.supN} زيارة)</span></h3><div class="kpis">${scBox(st.sup,'النتيجة النهائية (كل الإدارات المساعدة مجمّعة)')}</div>`+
-    (st.waiting?`<div class="muted" style="margin-top:6px">⏳ ${st.waiting} زيارة مستنية الجزء التاني ومش محسوبة لحد ما تكتمل.</div>`:'')+`</div>`;
-}
 const needs=r=>(ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED')||(ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED');
 
 // ---------- التقارير ----------
@@ -435,7 +429,7 @@ function reportsView(){
     <div class="card tile t-warn"><div class="big">${pend||cnt('SUBMITTED')+cnt('REVIEWED')}</div><div class="muted">${mgr?'تحتاج إجراء':'قيد المراجعة'}</div></div>
     <div class="card tile t-bad"><div class="big">${cnt('RETURNED')}</div><div class="muted">معادة للمراقب</div></div>
     <div class="card tile t-good"><div class="big">${cnt('FINAL_APPROVED')}</div><div class="muted">معتمدة نهائيًا</div></div></div>`;
-  return kp+scorePanel()+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
+  return (ME.role==='VIEWER'?'':kp)+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
      <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(r._inspNames||NAMES[r.inspector_id]||'')}${r._waiting&&r._waiting.length?' · ⏳ في انتظار '+esc(r._waiting.map(w=>w.name).join('، ')):''}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
@@ -477,14 +471,14 @@ function reportView(){
   const r=curReport(); if(!r) return '<p>التقرير مش موجود</p>';
   const editing=!!(EDIT&&EDIT.id===r.id); const rr=editing?Object.assign({},r,{data:Object.assign({},r.data,{findings:EDIT.findings})}):r; const b=view.b=buildReport(rr,NAMES);
   const wait=!!(r._waiting&&r._waiting.length); const canArea=ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED'&&!wait, canDept=ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED'&&!wait;
-  const final=r.status==='FINAL_APPROVED';
+  const final=r.status==='FINAL_APPROVED'; const viewer=ME.role==='VIEWER';
   const editBar=!final&&canEditReport(r)?(editing?`<div class="card noprint" style="background:#fff3e0"><b>تعديل التقييم</b><div class="row wrap" style="margin-top:8px;gap:8px"><button data-act="eSave">حفظ التعديلات</button><button class="alt" data-act="eCancel">إلغاء</button></div>${addPanel(b)}<div class="err" id="eerr"></div></div>`:`<div class="noprint" style="margin:8px 0"><button data-act="eStart">تعديل التقرير (الأقسام والضوابط)</button></div>`):'';
   const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
     if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
     h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div><div class="muted">${esc(v.category?v.category.name:'')}</div>
     <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
     ${editing?editBox(v):(v.finding.violationNote?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(v.finding.violationNote)}</div>`:'')}
-    ${v.photos.length?(final?'<div class="muted">الصور اتمسحت من السحابة بعد الاعتماد النهائي (النسخة الأرشيف عند مدير الإدارة).</div>':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb">🎥 فيديو عند المراقب</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
+    ${v.photos.length?(false?'':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
@@ -494,8 +488,8 @@ function reportView(){
     <p>نوع التقييم: <b>${esc(b.templateLabel||'تقييم المعارض الأوف لاين')}</b><br>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p>${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="muted" style="margin-bottom:4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div>`:''}</div>
   ${partsInfo}
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
-  ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>'}
-  <div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>
+  ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:(viewer?'':'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>')}
+  ${viewer?'':`<div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>`}
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
   ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td></tr>`).join('')}</table></div>
@@ -504,11 +498,11 @@ function reportView(){
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
   <div class="noprint" id="acts">
     ${canArea&&!editing?`<button data-act="approve" data-a="REVIEWED">اعتماد المراجعة</button> <button class="alt" data-act="retForm">إعادة للمراقب</button>`:''}
-    ${canDept&&!editing?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button> <button class="alt" data-act="retAreaForm">إعادة لمدير المنطقة</button><p class="muted">الاعتماد النهائي بينزّل ZIP بالصور الأصلية على جهازك، وبعدها بيمسح الصور من السحابة.</p>`:''}
-    <p><button class="alt" data-act="print">طباعة / حفظ PDF</button> <button class="alt" data-act="csv">تنزيل Excel (CSV)</button> ${final?'':'<button class="alt" data-act="zip">تنزيل الصور (ZIP)</button>'}</p>
+    ${canDept&&!editing?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button> <button class="alt" data-act="retAreaForm">إعادة لمدير المنطقة</button><p class="muted">الاعتماد النهائي بينزّل ZIP بالصور على جهازك. الصور بتفضل متاحة للمشاهدين 30 يوم وبعدها بتتأرشف على السيرفر (بتتمسح بعد فترة الاحتفاظ).</p>`:''}
+    <p><button class="alt" data-act="print">طباعة / حفظ PDF</button> <button class="alt" data-act="csv">تنزيل Excel (CSV)</button> <button class="alt" data-act="zip">تنزيل الصور (ZIP)</button></p>
     <div class="err" id="rerr"></div></div>`;
 }
-function afterReport(){ const r=curReport(); if(r&&r.status!=='FINAL_APPROVED') hydrateMedia(r); }
+function afterReport(){ const r=curReport(); if(r) hydrateMedia(r); }
 async function getMedia(r,p){
   if(MEDIA.has(p.id)) return MEDIA.get(p.id);
   const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
@@ -516,7 +510,7 @@ async function getMedia(r,p){
   try{   // الوسائط الجديدة على Backblaze B2 (رابط مؤقت من وظيفة swift-worker)
     const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
     const res=await fetch(j.url); if(res.ok) blob=await res.blob();
-  }catch(e){}
+  }catch(e){ if(e&&e.code===410) throw e }   // 410 = الملف اتأرشف (عدّت 30 يوم)
   if(!blob){  // التقارير القديمة لسه على Supabase
     const res=await api(`/storage/v1/object/authenticated/${CFG.bucket}/${key}`,{raw:true});
     blob=await res.blob();
@@ -526,7 +520,7 @@ async function getMedia(r,p){
 async function hydrateMedia(r){
   const nodes=[...document.querySelectorAll('[data-media]')]; let i=0;
   const worker=async()=>{while(i<nodes.length){const n=nodes[i++];try{const blob=await getMedia(r,{id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null});const url=URL.createObjectURL(blob);
-    n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){n.textContent='غير متاحة'}}};
+    n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة'}}};
   await Promise.all([worker(),worker(),worker(),worker()]);
 }
 async function review(action,note,only){
@@ -570,11 +564,7 @@ async function doFinal(){
     const files=await collectZip(b);                         // لازم كل الصور تتنزّل قبل الاعتماد
     if(files.length) download(makeZip(files),`Raneen_${r.report_number}_photos.zip`);
     await review('FINAL_APPROVED');
-    for(const v of b.viol) for(const p of v.photos){
-      const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
-      try{await api('/functions/v1/swift-worker',{method:'POST',body:{action:'delete',path:key}})}catch(e){}   // Backblaze
-      try{await api(`/storage/v1/object/${CFG.bucket}/${key}`,{method:'DELETE'})}catch(e){}                  // تقارير قديمة على Supabase
-    }
+    // الملفات بتفضل على السحابة: المسح والأرشفة (بعد 30 يوم) على السيرفر بعد التأكد من النقل، مش من هنا
     toast('اتعتمد التقرير. احفظ ملف ZIP + اطبع PDF للأرشيف.'); render();
   }catch(e){ el('rerr').textContent=errTxt(e); if(btn)btn.disabled=false }
 }
@@ -593,21 +583,42 @@ function usersView(){
   return `<div class="row" style="margin-bottom:10px"><h3 class="grow" style="margin:0">المستخدمون</h3><button data-act="userForm" data-id="">+ مستخدم</button></div>`+
    PROFILES.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(p=>`<div class="card click" data-act="userForm" data-id="${esc(p.id)}"><div class="row"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.username)} · ${ROLE_AR[p.role]}</div></div><span class="tag ${p.is_active?'good':'badc'}"><span class="dot"></span>${p.is_active?'مفعّل':'معطّل'}</span></div></div>`).join('');
 }
+const VU_PRESETS=[['إدارة العمليات (الكل)',null],['الكاشير وخدمة العملاء',['customer_service','cashier','zayed_customer_service']],['الأمن والكاميرات',['security','cameras','zayed_security']],['الصيانة والتكييفات',['maintenance','ac_maintenance','zayed_maintenance','zayed_air_conditioning']],['الاستلامات',['receiving_fmc']],['الموارد البشرية',['hr','zayed_hr']]];
+let VU={sel:new Set(),loaded:false,id:null};
+const vuUnits=()=>C.units.filter(u=>u.isActive).slice().sort((a,b)=>String(a.templateId||'').localeCompare(String(b.templateId||''))||String(a.kind).localeCompare(String(b.kind))||(a.sortOrder||0)-(b.sortOrder||0));
+function vuRender(){
+  const box=el('vu'); if(!box) return;
+  if(el('f_role').value!=='VIEWER'){box.innerHTML='';return}
+  if(!VU.id){box.innerHTML='<div class="muted">احفظ المستخدم الأول، وبعدين افتحه تاني وحدد وحداته.</div>';return}
+  if(!VU.loaded){box.innerHTML='<div class="muted">جاري تحميل الوحدات…</div>';return}
+  box.innerHTML='<label>الوحدات اللي يشوفها المشاهد</label><div class="row wrap" style="gap:6px;margin-bottom:6px">'+VU_PRESETS.map((p,i)=>`<button type="button" class="alt" data-act="vuPreset" data-i="${i}">${esc(p[0])}</button>`).join('')+'</div><div style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:6px 10px">'+vuUnits().map(u=>`<label class="chk"><input type="checkbox" data-vu="${esc(u.id)}" ${VU.sel.has(u.id)?'checked':''}> ${esc(u.name)} <span class="muted">· ${esc(templateLabel(u.templateId))} · ${u.kind==='ADMINISTRATION'?'إدارة':'قسم'}</span></label>`).join('')+`</div><div class="muted" id="vucnt">المختار: ${VU.sel.size}</div>`;
+}
+async function vuLoad(id){
+  VU={sel:new Set(),loaded:false,id:id||null}; vuRender();
+  if(!id) return;
+  try{ const r=await api('/rest/v1/rpc/get_viewer_units',{method:'POST',body:{p_user:id}}); VU.sel=new Set(r||[]); VU.loaded=true }
+  catch(e){ const b=el('vu'); if(b&&el('f_role').value==='VIEWER') b.innerHTML='<div class="err">تعذّر تحميل وحدات المشاهد: '+esc(errTxt(e))+'</div>'; return }
+  vuRender();
+}
 function userForm(id){
   const p=id?PROFILES.find(x=>x.id===id):{name:'',username:'',role:'INSPECTOR',is_active:true};
   modal(`<h3>${id?'تعديل مستخدم':'إضافة مستخدم'}</h3>
    <label>الاسم</label><input id="f_name" value="${esc(p.name)}">
    ${id?`<div class="muted">اسم المستخدم: ${esc(p.username)}</div>`:'<label>اسم المستخدم (إنجليزي وأرقام، مثال ahmed.fayoum)</label><input id="f_user" autocapitalize="off">'}
    <label>الدور</label><select id="f_role">${Object.entries(ROLE_AR).map(([k,v])=>`<option value="${k}" ${p.role===k?'selected':''}>${v}</option>`).join('')}</select>
+   <div id="vu"></div>
    ${id?`<label class="chk"><input type="checkbox" id="f_act" ${p.is_active?'checked':''}> مفعّل</label>`:''}
    <label>${id?'كلمة مرور جديدة (اتركها فاضية لو مش عايز تغيّرها)':'كلمة المرور (8 أحرف على الأقل)'}</label><input id="f_pass" type="text" autocomplete="off">
    <div class="err" id="ferr"></div><button data-act="saveUser" data-id="${esc(id||'')}">حفظ</button> <button class="alt" data-act="close">إلغاء</button>`);
+  vuLoad(id||null);
 }
 async function saveUser(id){
   const name=el('f_name').value.trim(),role=el('f_role').value,pass=el('f_pass').value;
   try{
     if(id) await api(`/functions/v1/${CFG.fn}`,{method:'POST',body:Object.assign({action:'update',id,name,role,is_active:el('f_act').checked},pass?{password:pass}:{})});
     else await api(`/functions/v1/${CFG.fn}`,{method:'POST',body:{action:'create',name,username:el('f_user').value.trim(),role,password:pass}});
+    // الدور اتحفظ الأول (لازم يبقى VIEWER على السيرفر)، وبعدين الوحدات
+    if(id&&role==='VIEWER'&&VU.loaded&&VU.id===id) await api('/rest/v1/rpc/set_viewer_units',{method:'POST',body:{p_user:id,p_units:[...VU.sel]}});
     PROFILES=await api('/rest/v1/profiles?select=*'); NAMES=Object.fromEntries(PROFILES.map(p=>[p.id,p.name])); closeModal(); toast('تم الحفظ'); render();
   }catch(e){el('ferr').textContent=errTxt(e)}
 }
@@ -756,7 +767,8 @@ function addMsg(r){
 }
 function chatExpire(){const now=Date.now();CH.msgs=CH.msgs.filter(m=>{const h=CH.auto[m.cid];return !h||m.at>=now-h*36e5})}
 const pname=id=>NAMES[id]||'مستخدم محذوف';
-async function chatSync(){
+async function chatSync(){ return;   // الشات متوقف
+
   if(CH.busy||!ME||!S) return; CH.busy=true;
   try{
     const cv=await api('/rest/v1/chat_conversations?select=id,auto_delete_hours&id=eq.'+TEAM);
@@ -912,6 +924,7 @@ const ACT={
   playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,view.b.viol.flatMap(v=>v.photos).find(p=>p.id===d.vid)||{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),
+  vuPreset:d=>{const p=VU_PRESETS[+d.i]; if(!p) return; const all=vuUnits().map(u=>u.id); VU.sel=new Set(p[1]===null?all:all.filter(x=>p[1].includes(x))); vuRender()},
   branchForm:d=>branchForm(d.id), saveBranch:d=>saveBranch(d.id), delBranch:d=>delBranch(d.id),
   openUnit:d=>{view={tab:'unit',unitId:d.id,uq:''};render()}, unitForm:d=>unitForm(d.id), saveUnit:d=>saveUnit(d.id), hideUnit:d=>hideUnit(d.id), importNewTemplates:()=>importNewTemplates(),
   groupForm:d=>groupForm(d.id), saveGroup:d=>saveGroup(d.id), hideGroup:d=>hideGroup(d.id),
@@ -920,6 +933,8 @@ const ACT={
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const f=ACT[b.dataset.act];if(f)f(b.dataset,b)});
 document.addEventListener('change',e=>{
+  if(e.target.id==='f_role'){vuRender();return}
+  if(e.target.dataset&&e.target.dataset.vu!==undefined){const k=e.target.dataset.vu; if(e.target.checked)VU.sel.add(k); else VU.sel.delete(k); const c=el('vucnt'); if(c)c.textContent='المختار: '+VU.sel.size; return}
   if(e.target.id==='scMonth'){FILTER.month=e.target.value;render();return}
   if(EDIT){ if(e.target.dataset&&e.target.dataset.ef!==undefined){render();return}
     if(e.target.id==='eaUnit'){EDIT.addUnit=e.target.value;EDIT.addCtl=null;render();return}

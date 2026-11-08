@@ -29,6 +29,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .ok{color:var(--ok)}.mid{color:var(--mid)}.bad{color:var(--bad)}.big{font-size:26px;font-weight:700}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{text-align:center}
 .unitbar{background:var(--pri);color:#fff;border-radius:10px;padding:6px 10px;margin:12px 0 6px;font-weight:600}
+.catbar{font-weight:700;color:#a00000;margin:10px 4px 4px;font-size:14px}
 .viol{border-right:5px solid var(--bad);background:#fff6f6}.muted{color:var(--gray);font-size:13px}
 .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.thumb{width:110px;height:84px;background:#e8e8e8;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:12px;color:#777}
 .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;cursor:zoom-in}
@@ -137,6 +138,63 @@ function unitControls(unitId, activeOnly=true){
   const ids=new Set(C.cats.filter(c=>c.unitId===unitId&&(!activeOnly||c.isActive)).map(c=>c.id));
   return C.controls.filter(k=>ids.has(k.categoryId)&&(!activeOnly||k.isActive));
 }
+// ===== حساب الخصم: نفس منطق التطبيق (RaneenScoring.kt) بالظبط، عشان الأرقام تتطابق في كل مكان =====
+const AREA_PARTS_FLAG=16, AREA_PART_PENALTY=2;
+const AREA_IDS=['services_admin_i1','services_admin_i3','services_admin_i4'];
+const RENUMBER_UNITS=['branch_manager','zayed_branch_manager'];
+const AREAS=['منزلي','الألعاب','المفروشات','الكهرباء'];
+const PART_LABELS={
+  services_admin_i5:['حريمي','رجالي'], zayed_services_i4:['حريمي','رجالي'],
+  services_admin_i6:['حريمي','رجالي'], zayed_services_i5:['حريمي','رجالي'],
+  services_admin_i7:['المدخل','المخرج'], zayed_services_i6:['المدخل','المخرج'],
+  services_admin_i8:['النظافة','الترتيب'], zayed_services_i7:['النظافة','الترتيب'],
+  services_admin_i9:['المنطقة المحيطة','الواجهات الزجاجية'], zayed_services_i8:['المنطقة المحيطة','الواجهات الزجاجية'],
+  maintenance_i13:['الصيانة','الدهان'],
+  branch_manager_i1:AREAS, branch_manager_i3:AREAS, services_admin_i1:AREAS, services_admin_i3:AREAS, services_admin_i4:AREAS,
+  branch_manager_i4:['النظافة','المعوقات'], branch_manager_i5:['النظافة','المعوقات'],
+  zayed_branch_manager_i4:['النظافة','المعوقات'], zayed_branch_manager_i5:['النظافة','المعوقات'],
+  branch_manager_i9:['النظافة','السلامة'], zayed_branch_manager_i9:['النظافة','السلامة']
+};
+const bitCnt=n=>{let c=0;while(n){c+=n&1;n>>=1}return c};
+// تقارير قديمة بتخزّن أجزاء بنود الخدمات 5/7/8/9 كـ 4 و8 و12 (بدل 1 و2 و3): نفك الترميزين
+const legacyParts=(id,v)=>(['services_admin_i5','services_admin_i7','services_admin_i8','services_admin_i9'].includes(id)&&(v===4||v===8||v===12))?(v>>2):v;
+function controlLoss(k,v){
+  v=Math.trunc(Number(v)||0); const max=Number(k.maxScore)||0, pen=Number(k.penaltyPerViolation)||1;
+  if(v<=0||max<=0) return 0;
+  const b=n=>(v&n)!==0; let sel;
+  switch(k.id){
+    case 'services_admin_i5': case 'services_admin_i7': case 'services_admin_i8': case 'services_admin_i9': { const m=legacyParts(k.id,v); sel=((m&1)?4:0)+((m&2)?4:0); break }
+    case 'services_admin_i6': sel=(b(1)?1:0)+(b(2)?1:0); break;
+    case 'zayed_services_i4': case 'zayed_services_i5': case 'zayed_services_i6': case 'zayed_services_i7': case 'zayed_services_i8':
+    case 'zayed_branch_manager_i4': case 'zayed_branch_manager_i5': case 'zayed_branch_manager_i9': sel=(b(1)?max/2:0)+(b(2)?max/2:0); break;
+    case 'maintenance_i13': case 'branch_manager_i4': case 'branch_manager_i5': case 'branch_manager_i9': sel=(b(1)?2:0)+(b(2)?2:0); break;
+    case 'branch_manager_i1': case 'branch_manager_i3': sel=(b(1)?1:0)+(b(2)?1:0)+(b(4)?1:0)+(b(8)?1:0); break;
+    case 'services_admin_i1': case 'services_admin_i3': case 'services_admin_i4':
+      if(b(AREA_PARTS_FLAG)) sel=AREA_PART_PENALTY*bitCnt(v&15); else return Math.min(max,v*pen); break;
+    case 'maintenance_i3': case 'branch_manager_i14': case 'security_i14': case 'cameras_i11': sel=v; break;
+    default: return Math.min(max,v*pen);
+  }
+  return Math.min(max,sel);
+}
+function partLabels(k,v){
+  v=Math.trunc(Number(v)||0);
+  if(k.id==='maintenance_i3') return [2,5].filter(n=>v===7||v===n);
+  const L=PART_LABELS[k.id]; if(!L) return [];
+  if(AREA_IDS.includes(k.id)&&!(v&AREA_PARTS_FLAG)) return [];
+  const m=legacyParts(k.id,v);
+  return L.filter((_,i)=>(m&(1<<i))!==0);
+}
+function togglePart(k,v,bit){ v=Math.trunc(Number(v)||0); if(AREA_IDS.includes(k.id)){ let cur=(v&AREA_PARTS_FLAG)?(v&15):0; cur^=bit; return cur?(cur|AREA_PARTS_FLAG):0 } return v^bit }
+const partOn=(k,v,bit)=>{ v=Math.trunc(Number(v)||0); if(AREA_IDS.includes(k.id)&&!(v&AREA_PARTS_FLAG)) return false; return ((AREA_IDS.includes(k.id)?(v&15):legacyParts(k.id,v))&bit)!==0 };
+const scoreNum=n=>{n=Number(n)||0; return n%1===0?String(n):n.toFixed(1)};
+const itemScoreText=(w,d)=>`الوزن: ${scoreNum(w)} | الخصم: ${scoreNum(d)} | المتبقي: ${scoreNum(w-d)}`;
+// ترقيم متسلسل من 1 لأوراق مدير المعرض (على البنود الفعّالة بالترتيب)
+function displayNoMap(unitId){
+  const m={}; if(!RENUMBER_UNITS.includes(unitId)) return m; let i=0;
+  C.cats.filter(c=>c.unitId===unitId&&c.isActive).sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)).forEach(c=>{
+    C.controls.filter(k=>k.categoryId===c.id&&k.isActive&&(k.maxScore||0)>0).sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)).forEach(k=>{m[k.id]=++i}) });
+  return m;
+}
 function weightSum(unitId){ return unitControls(unitId).reduce((a,k)=>a+(k.maxScore||0),0); }
 function computeUnit(unit, findings){
   const controls=unitControls(unit.id);
@@ -146,11 +204,7 @@ function computeUnit(unit, findings){
   controls.forEach(k=>{
     planned+=k.maxScore||0;
     const v=total[k.id]||0;
-    // These controls store the selected deduction directly, not a count to multiply by the default penalty.
-    const servicePartIds = ["services_admin_i5","services_admin_i6","services_admin_i7","services_admin_i8","services_admin_i9"];
-    const directDeduction = ["security_i14","cameras_i11","maintenance_i3",...servicePartIds].includes(k.id);
-    const serviceDeduction = servicePartIds.includes(k.id) ? (v===1||v===2 ? v : (v===4||v===8 ? k.maxScore/2 : v===12||v===3 ? k.maxScore : v)) : v;
-    if ((k.maxScore||0)>0 && v>0) loss+=Math.min(k.maxScore, directDeduction ? serviceDeduction : v*(k.penaltyPerViolation||1));
+    if ((k.maxScore||0)>0 && v>0) loss+=controlLoss(k,v);
   });
   const actual=planned-loss;
   const ids=new Set(controls.map(k=>k.id));
@@ -168,6 +222,8 @@ function buildReport(r, names){
   const lines=reportUnits.map(u=> na.has(u.id)? {unit:u,na:true} : Object.assign({unit:u,na:false}, computeUnit(u,(d.findings||[]).filter(f=>reportUnitIds.has(f.unitId)))));
   const photosBy={}; (d.photos||[]).forEach(p=>{ (photosBy[p.findingId]=photosBy[p.findingId]||[]).push(p); });
   const unitOrder=Object.fromEntries(reportUnits.map((u,i)=>[u.id,i]));
+  const dnAll=Object.assign({},...reportUnits.map(u=>displayNoMap(u.id)));
+  const totalsByCtl={}; (d.findings||[]).filter(f=>f.violationCount>0&&!na.has(f.unitId)&&reportUnitIds.has(f.unitId)).forEach(f=>{ totalsByCtl[f.controlId]=(totalsByCtl[f.controlId]||0)+(Number(f.violationCount)||0) });
   const viol=[], censusMap={};
   (d.findings||[]).filter(f=>f.violationCount>0 && !na.has(f.unitId) && reportUnitIds.has(f.unitId)).forEach(f=>{
     const k=byId(C.controls,f.controlId); if(!k) return;
@@ -186,12 +242,9 @@ function buildReport(r, names){
       e.parts.push({g:g?g.sortOrder||0:0,n:qty,unitPrice:Number.isFinite(price)?price:null,total:Number.isFinite(total)?total:null});
     } else {
       const rawCount=Number(f.violationCount)||0;
-      const servicePartIds=["services_admin_i5","services_admin_i6","services_admin_i7","services_admin_i8","services_admin_i9"];
-      const directDeduction=["security_i14","cameras_i11","maintenance_i3",...servicePartIds].includes(k.id);
-      const serviceDeduction=servicePartIds.includes(k.id) ? (rawCount===1||rawCount===2 ? rawCount : (rawCount===4||rawCount===8 ? (Number(k.maxScore)||0)/2 : rawCount===12||rawCount===3 ? Number(k.maxScore)||0 : rawCount)) : rawCount;
-      const deduction=Math.min(Number(k.maxScore)||0, directDeduction ? serviceDeduction : rawCount*(Number(k.penaltyPerViolation)||1));
-      const subparts=k.id==="maintenance_i3" ? [2,5].filter(n=>rawCount===7 || rawCount===n) : servicePartIds.includes(k.id) ? ((rawCount===12||rawCount===3) ? (k.id==="services_admin_i5"?["حريمي","رجالي"]:k.id==="services_admin_i6"?["حريمي","رجالي"]:k.id==="services_admin_i7"?["المدخل","المخرج"]:k.id==="services_admin_i8"?["النظافة","الترتيب"]:["المنطقة المحيطة","الواجهات الزجاجية"]) : (rawCount===4||rawCount===1 ? [k.id==="services_admin_i5"||k.id==="services_admin_i6"?"حريمي":k.id==="services_admin_i7"?"المدخل":k.id==="services_admin_i8"?"النظافة":"المنطقة المحيطة"] : rawCount===8||rawCount===2 ? [k.id==="services_admin_i5"||k.id==="services_admin_i6"?"رجالي":k.id==="services_admin_i7"?"المخرج":k.id==="services_admin_i8"?"الترتيب":"الواجهات الزجاجية"] : [])) : [];
-      viol.push({finding:f,control:k,category:cat,unit:u,group:g,photos:photosBy[f.id]||[],deduction,subparts});
+      const deduction=controlLoss(k,rawCount);
+      const subparts=partLabels(k,rawCount);
+      viol.push({finding:f,control:k,category:cat,unit:u,group:g,photos:photosBy[f.id]||[],deduction,subparts,no:dnAll[k.id]||k.sortOrder,weight:Number(k.maxScore)||0,itemDeducted:controlLoss(k,totalsByCtl[k.id]||0)});
     }
   });
   viol.sort((a,b)=>(unitOrder[a.unit&&a.unit.id]||0)-(unitOrder[b.unit&&b.unit.id]||0) || (a.category?a.category.sortOrder:0)-(b.category?b.category.sortOrder:0) || (a.control.sortOrder||0)-(b.control.sortOrder||0));
@@ -209,7 +262,7 @@ function buildReport(r, names){
     finAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)!=='SUPPORT').map(l=>l.percent))
   };
 }
-if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,weightSum,unitControls};
+if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,weightSum,unitControls,controlLoss,partLabels,displayNoMap,itemScoreText};
 // ======== ZIP (بدون ضغط) ========
 const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
 function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
@@ -438,19 +491,19 @@ function reportsView(){
 
 // ---------- تعديل التقرير من الويب (مدير المنطقة / مدير الإدارة قبل الاعتماد النهائي) ----------
 const canEditReport=r=>(ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED')||(ME.role==='DEPT_MANAGER'&&(r.status==='SUBMITTED'||r.status==='REVIEWED'));
-function editBox(v){const f=v.finding;return `<div class="row wrap noprint" style="margin-top:6px;gap:8px">العدد: <input type="number" min="0" data-ef="${esc(f.id)}" value="${Number(f.violationCount)||0}" style="width:80px;margin:0"> <button class="alt" data-act="eZero" data-id="${esc(f.id)}">إلغاء المخالفة</button></div><textarea data-en="${esc(f.id)}" rows="2" placeholder="ملاحظات المخالفة" style="width:100%;margin-top:6px">${esc(f.violationNote||'')}</textarea>`}
+function editBox(v){const f=v.finding;return `<div class="row wrap noprint" style="margin-top:6px;gap:8px">${PART_LABELS[v.control.id]?`الأجزاء: ${PART_LABELS[v.control.id].map((l,i)=>`<label class="chk"><input type="checkbox" data-efpart="${esc(f.id)}|${1<<i}" ${partOn(v.control,f.violationCount,1<<i)?'checked':''}> ${esc(l)}</label>`).join(' ')}`:`العدد: <input type="number" min="0" data-ef="${esc(f.id)}" value="${Number(f.violationCount)||0}" style="width:80px;margin:0">`} <button class="alt" data-act="eZero" data-id="${esc(f.id)}">إلغاء المخالفة</button></div><textarea data-en="${esc(f.id)}" rows="2" placeholder="ملاحظات المخالفة" style="width:100%;margin-top:6px">${esc(f.violationNote||'')}</textarea>`}
 function addPanel(b){
   const units=b.lines.filter(l=>!l.na).map(l=>l.unit); if(!units.length) return '';
   const uid=(EDIT.addUnit&&units.find(u=>u.id===EDIT.addUnit))?EDIT.addUnit:units[0].id; EDIT.addUnit=uid;
-  const ctls=unitControls(uid).filter(k=>(k.maxScore||0)>0);
+  const ctls=unitControls(uid).filter(k=>(k.maxScore||0)>0); const dnm=displayNoMap(uid);
   const cid=(EDIT.addCtl&&ctls.find(k=>k.id===EDIT.addCtl))?EDIT.addCtl:(ctls[0]&&ctls[0].id); EDIT.addCtl=cid;
   const ck=ctls.find(k=>k.id===cid);
   const groups=ck&&ck.perGroup?C.groups.filter(g=>g.unitId===uid&&g.isActive):[];
   return `<div class="card" style="margin-top:10px"><b>إضافة مخالفة</b>
    <select id="eaUnit" style="width:100%">${units.map(u=>`<option value="${esc(u.id)}" ${u.id===uid?'selected':''}>${esc(u.name)}</option>`).join('')}</select>
-   <select id="eaCtl" style="width:100%">${ctls.map(k=>`<option value="${esc(k.id)}" ${k.id===cid?'selected':''}>${k.sortOrder}. ${esc(k.text)}</option>`).join('')}</select>
+   <select id="eaCtl" style="width:100%">${ctls.map(k=>`<option value="${esc(k.id)}" ${k.id===cid?'selected':''}>${dnm[k.id]||k.sortOrder}. ${esc(k.text)}</option>`).join('')}</select>
    ${groups.length?`<select id="eaGrp" style="width:100%">${groups.map(g=>`<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')}</select>`:''}
-   <div class="row wrap" style="gap:8px">العدد: <input id="eaCnt" type="number" min="1" value="1" style="width:80px;margin:0"></div>
+   ${PART_LABELS[cid]?`<div class="row wrap" style="gap:8px">الأجزاء المخالفة: ${PART_LABELS[cid].map((l,i)=>`<label class="chk"><input type="checkbox" data-eapart="${1<<i}"> ${esc(l)}</label>`).join(' ')}</div>`:`<div class="row wrap" style="gap:8px">العدد: <input id="eaCnt" type="number" min="1" value="1" style="width:80px;margin:0"></div>`}
    <textarea id="eaNote" rows="2" placeholder="ملاحظات المخالفة (اختياري)" style="width:100%;margin-top:6px"></textarea>
    <button class="alt" data-act="eAdd" style="margin-top:6px">إضافة</button></div>`;
 }
@@ -474,12 +527,30 @@ function reportView(){
   const wait=!!(r._waiting&&r._waiting.length); const canArea=ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED'&&!wait, canDept=ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED'&&!wait;
   const final=r.status==='FINAL_APPROVED'; const viewer=ME.role==='VIEWER';
   const editBar=!final&&canEditReport(r)?(editing?`<div class="card noprint" style="background:#fff3e0"><b>تعديل التقييم</b><div class="row wrap" style="margin-top:8px;gap:8px"><button data-act="eSave">حفظ التعديلات</button><button class="alt" data-act="eCancel">إلغاء</button></div>${addPanel(b)}<div class="err" id="eerr"></div></div>`:`<div class="noprint" style="margin:8px 0"><button data-act="eStart">تعديل التقرير (الأقسام والضوابط)</button></div>`):'';
-  const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
-    if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
-    h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div><div class="muted">${esc(v.category?v.category.name:'')}</div>
-    <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
-    ${editing?editBox(v):(v.finding.violationNote?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(v.finding.violationNote)}</div>`:'')}
-    ${v.photos.length?(false?'':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
+  const vcards=(()=>{
+  let list=b.viol;
+  if(!editing){   // نفس البند اتكرر (مجموعات/أجزاء مختلفة): كارت واحد وكل صوره وملاحظاته تحته
+    const m=new Map();
+    list.forEach(v=>{const k=(v.unit?v.unit.id:'')+'|'+v.control.id;
+      if(!m.has(k)) m.set(k,Object.assign({},v,{groupNames:[],photos:[],notes:[],subparts:[]}));
+      const e=m.get(k); if(v.group) e.groupNames.push(v.group.name);
+      e.photos=e.photos.concat(v.photos);
+      if(v.finding.violationNote) e.notes.push((v.group?v.group.name+': ':'')+v.finding.violationNote);
+      v.subparts.forEach(x=>{if(!e.subparts.includes(x)) e.subparts.push(x)});
+    });
+    list=[...m.values()].map(e=>Object.assign(e,{deduction:e.itemDeducted}));
+  }
+  let last='',lastCat='',h='';
+  list.forEach(v=>{
+    if(v.unit&&v.unit.id!==last){last=v.unit.id;lastCat='';h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
+    const cat=v.category?v.category.name:''; if(cat!==lastCat){lastCat=cat;h+=`<div class="catbar">▪ ${esc(cat)}</div>`}
+    const gtxt=(!editing&&v.groupNames&&v.groupNames.length)?` (${esc(v.groupNames.join('، '))})`:(v.group?` (${esc(v.group.name)})`:'');
+    const note=editing?'':((v.notes&&v.notes.length)?v.notes.join(' — '):(v.finding.violationNote||''));
+    h+=`<div class="card viol"><div class="row"><b class="grow">${v.no}. ${esc(v.control.text)}${gtxt}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div>
+    <div class="muted"><b>${itemScoreText(v.weight,v.itemDeducted)}</b> · الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
+    ${editing?editBox(v):(note?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(note)}</div>`:'')}
+    ${v.photos.length?(`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});
+  return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
@@ -575,8 +646,8 @@ function csvReport(){
   const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
   rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['ملاحظات الزيارة العامة',(b.d.inspection||{}).notes||''],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات']);
   b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount]));
-  rows.push([],['القسم','الكاتجري','رقم البند','البند','المجموعة','ملاحظات المخالفة','عدد الصور']);
-  b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.control.sortOrder,v.control.text,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
+  rows.push([],['القسم','الكاتجري','رقم البند','البند','الوزن','الخصم','المتبقي','المجموعة','ملاحظات المخالفة','عدد الصور']);
+  b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.no,v.control.text,v.weight,v.itemDeducted,v.weight-v.itemDeducted,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
   if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }
@@ -914,7 +985,7 @@ const ACT={
   eZero:d=>{const f=EDIT&&EDIT.findings.find(x=>x.id===d.id); if(f){f.violationCount=0;render()}},
   eAdd:()=>{
     if(!EDIT)return; const unitId=el('eaUnit').value, controlId=el('eaCtl').value, g=el('eaGrp'), groupId=g?g.value:'';
-    const cnt=parseInt(el('eaCnt').value)||0, note=el('eaNote').value.trim();
+    let cnt; if(PART_LABELS[controlId]){ let m=0; document.querySelectorAll('[data-eapart]').forEach(x=>{if(x.checked)m|=+x.dataset.eapart}); if(!m){toast('حدد الجزء المخالف',true);return} cnt=AREA_IDS.includes(controlId)?(m|AREA_PARTS_FLAG):m } else cnt=parseInt(el('eaCnt').value)||0; const note=el('eaNote').value.trim();
     if(cnt<1){toast('اكتب عدد المخالفات',true);return}
     const f=EDIT.findings.find(x=>x.unitId===unitId&&x.controlId===controlId&&(x.groupId||'')===groupId);
     if(f){f.violationCount=cnt; if(note)f.violationNote=note}
@@ -936,6 +1007,7 @@ const ACT={
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const f=ACT[b.dataset.act];if(f)f(b.dataset,b)});
 document.addEventListener('change',e=>{
+  if(e.target.dataset&&e.target.dataset.efpart){const [fid,bit]=e.target.dataset.efpart.split('|'); const f=EDIT&&EDIT.findings.find(x=>x.id===fid); if(f){f.violationCount=togglePart(byId(C.controls,f.controlId),f.violationCount,+bit); render()} return}
   if(e.target.id==='f_role'){vuRender();return}
   if(e.target.dataset&&e.target.dataset.vu!==undefined){const k=e.target.dataset.vu; if(e.target.checked)VU.sel.add(k); else VU.sel.delete(k); const c=el('vucnt'); if(c)c.textContent='المختار: '+VU.sel.size; return}
   if(e.target.id==='scMonth'){FILTER.month=e.target.value;render();return}

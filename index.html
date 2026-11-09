@@ -220,6 +220,15 @@ function buildReport(r, names){
   const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));}).filter(u=>!r._viewer||(d.units||[]).some(x=>x.unitId===u.id));
   const reportUnitIds=new Set(reportUnits.map(u=>u.id));
   const lines=reportUnits.map(u=> na.has(u.id)? {unit:u,na:true} : Object.assign({unit:u,na:false}, computeUnit(u,(d.findings||[]).filter(f=>reportUnitIds.has(f.unitId)))));
+  // إجمالي مخالفات الأسعار لكل قسم (من حصر الأسعار). الاستلامات: عدد الأقسام اللي اتاخدت فيها مخالفة في بند 2
+  const priceOf=u=>{ const fs=(d.findings||[]).filter(f=>f.unitId===u.id);
+    if(u.id==='receiving_fmc'){ const g=new Set(); fs.forEach(f=>{ if(/_i2$/.test(f.controlId)&&(f.violationCount||0)>0) g.add(f.groupId||'') }); return g.size }
+    let t=0;
+    fs.forEach(f=>{ const c=f.violationCount||0; if(c<=0) return;
+      if(/^cns_pricing_.+_\d+$/.test(f.controlId)){ t+=c; return }
+      if(typeof f.note==='string'&&f.note.startsWith('RQ_CENSUS_V1:')){ try{ const j=JSON.parse(f.note.slice(13)); ['no_shelf','mismatch','stand_offer','stand_price','partial_damage','no_code','no_price'].forEach(k=>{ if(j[k]&&j[k].count>0) t+=j[k].count }) }catch(e){} } });
+    return t };
+  lines.forEach(l=>{ if(!l.na) l.priceViol=priceOf(l.unit) });
   const photosBy={}; (d.photos||[]).forEach(p=>{ (photosBy[p.findingId]=photosBy[p.findingId]||[]).push(p); });
   const unitOrder=Object.fromEntries(reportUnits.map((u,i)=>[u.id,i]));
   const dnAll=Object.assign({},...reportUnits.map(u=>displayNoMap(u.id)));
@@ -563,8 +572,8 @@ function reportView(){
   ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:(viewer?'':'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>')}
   ${viewer?'':`<div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>`}
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
-  <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th></tr>
-  ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="3" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td></tr>`).join('')}</table></div>
+  <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th><th>مخالفات الأسعار</th></tr>
+  ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="4" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td><td>${l.priceViol||0}</td></tr>`).join('')}</table></div>
   ${editBar}<h3>المخالفات (${b.viol.length})</h3>${vcards||'<p class="ok">لا توجد مخالفات.</p>'}
   ${b.census.length?`<h3>ضوابط الحصر</h3>${cen}`:''}
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
@@ -644,8 +653,8 @@ async function doFinal(){
 }
 function csvReport(){
   const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
-  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['ملاحظات الزيارة العامة',(b.d.inspection||{}).notes||''],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات']);
-  b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount]));
+  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['ملاحظات الزيارة العامة',(b.d.inspection||{}).notes||''],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات','مخالفات الأسعار']);
+  b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount,l.priceViol||0]));
   rows.push([],['القسم','الكاتجري','رقم البند','البند','الوزن','الخصم','المتبقي','المجموعة','ملاحظات المخالفة','عدد الصور']);
   b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.no,v.control.text,v.weight,v.itemDeducted,v.weight-v.itemDeducted,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
   if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}

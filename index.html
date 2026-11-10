@@ -222,7 +222,7 @@ function buildReport(r, names){
   const lines=reportUnits.map(u=> na.has(u.id)? {unit:u,na:true} : Object.assign({unit:u,na:false}, computeUnit(u,(d.findings||[]).filter(f=>reportUnitIds.has(f.unitId)))));
   // إجمالي مخالفات الأسعار لكل قسم (من حصر الأسعار). الاستلامات: عدد الأقسام اللي اتاخدت فيها مخالفة في بند 2
   const priceOf=u=>{ const fs=(d.findings||[]).filter(f=>f.unitId===u.id);
-    if(u.id==='receiving_fmc'){ const g=new Set(); fs.forEach(f=>{ if(/_i2$/.test(f.controlId)&&(f.violationCount||0)>0) g.add(f.groupId||'') }); return g.size }
+    if(u.id==='receiving_fmc'){ const g=new Set(); fs.forEach(f=>{ if(/_i[12]$/.test(f.controlId)&&(f.violationCount||0)>0) g.add(f.controlId+'|'+(f.groupId||'')) }); return g.size }   // بند 1 + بند 2
     let t=0;
     fs.forEach(f=>{ const c=f.violationCount||0; if(c<=0) return;
       if(/^cns_pricing_.+_\d+$/.test(f.controlId)){ t+=c; return }

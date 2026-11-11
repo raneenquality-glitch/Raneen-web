@@ -140,9 +140,11 @@ function unitControls(unitId, activeOnly=true){
 }
 // ===== حساب الخصم: نفس منطق التطبيق (RaneenScoring.kt) بالظبط، عشان الأرقام تتطابق في كل مكان =====
 const AREA_PARTS_FLAG=16, AREA_PART_PENALTY=2;
-const AREA_IDS=['services_admin_i1','services_admin_i3','services_admin_i4'];
+const AREA_IDS=['services_admin_i1','services_admin_i3','services_admin_i4','zayed_services_i2','zayed_services_i3','zayed_branch_manager_i3'];
+const areaPen=id=>id==='zayed_branch_manager_i3'?1:AREA_PART_PENALTY;
 const RENUMBER_UNITS=['branch_manager','zayed_branch_manager'];
 const AREAS=['منزلي','الألعاب','المفروشات','الكهرباء'];
+const ZAREAS=['منزلي','المفروشات','الكهرباء','الكافيه'];   // أقسام فرع زايد
 const PART_LABELS={
   services_admin_i5:['حريمي','رجالي'], zayed_services_i4:['حريمي','رجالي'],
   services_admin_i6:['حريمي','رجالي'], zayed_services_i5:['حريمي','رجالي'],
@@ -151,6 +153,7 @@ const PART_LABELS={
   services_admin_i9:['المنطقة المحيطة','الواجهات الزجاجية'], zayed_services_i8:['المنطقة المحيطة','الواجهات الزجاجية'],
   maintenance_i13:['الصيانة','الدهان'],
   branch_manager_i1:AREAS, branch_manager_i3:AREAS, services_admin_i1:AREAS, services_admin_i3:AREAS, services_admin_i4:AREAS,
+  zayed_services_i2:ZAREAS, zayed_services_i3:ZAREAS, zayed_branch_manager_i3:ZAREAS,
   branch_manager_i4:['النظافة','المعوقات'], branch_manager_i5:['النظافة','المعوقات'],
   zayed_branch_manager_i4:['النظافة','المعوقات'], zayed_branch_manager_i5:['النظافة','المعوقات'],
   branch_manager_i9:['النظافة','السلامة'], zayed_branch_manager_i9:['النظافة','السلامة']
@@ -170,7 +173,8 @@ function controlLoss(k,v){
     case 'maintenance_i13': case 'branch_manager_i4': case 'branch_manager_i5': case 'branch_manager_i9': sel=(b(1)?2:0)+(b(2)?2:0); break;
     case 'branch_manager_i1': case 'branch_manager_i3': sel=(b(1)?1:0)+(b(2)?1:0)+(b(4)?1:0)+(b(8)?1:0); break;
     case 'services_admin_i1': case 'services_admin_i3': case 'services_admin_i4':
-      if(b(AREA_PARTS_FLAG)) sel=AREA_PART_PENALTY*bitCnt(v&15); else return Math.min(max,v*pen); break;
+    case 'zayed_services_i2': case 'zayed_services_i3': case 'zayed_branch_manager_i3':
+      if(b(AREA_PARTS_FLAG)) sel=areaPen(k.id)*bitCnt(v&15); else return Math.min(max,v*pen); break;
     case 'maintenance_i3': case 'branch_manager_i14': case 'security_i14': case 'cameras_i11': sel=v; break;
     default: return Math.min(max,v*pen);
   }

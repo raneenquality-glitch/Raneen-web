@@ -7,7 +7,7 @@
 <meta name="description" content="لوحة إدارة الجودة بشركة رنين لمراجعة التقارير وإدارة الفروع والضوابط.">
 <title>رنين — إدارة الجودة</title>
 <style>
-:root{--pri:#e10003;--pri-d:#b00002;--pri-l:#fde8e8;--acc:#ef6c00;--acc-l:#fff3e0;--red:#b00002;--ink:#212121;--gray:#666;--bg:#f9f9f9;--card:#fff;--line:#e0e0e0;--ok:#1d7a4d;--mid:#c77700;--bad:#c62828}
+:root{--pri:#e10003;--pri-d:#b00002;--pri-l:#fde8e8;--acc:#ef6c00;--acc-l:#fff3e0;--red:#b00002;--ink:#212121;--gray:#666;--bg:#f9f9f9;--card:#fff;--line:#e0e0e0;--ok:#1d7a4d;--mid:#d9a400;--bad:#c62828}
 *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
 header.top{background:var(--pri);color:#fff;padding:12px 16px;border-bottom:3px solid var(--pri-d);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 header.top h1{font-size:18px;margin:0;flex:1}header.top small{opacity:.9}
@@ -49,7 +49,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 /* مكوّنات التصميم الجديد */
 .prog{height:8px;border-radius:50px;background:var(--pri-l);overflow:hidden;min-width:70px}
 .prog>i{display:block;height:100%;border-radius:50px;background:var(--pri)}
-.prog.ok>i{background:var(--ok)}.prog.mid>i{background:var(--acc)}.prog.bad>i{background:var(--bad)}
+.prog.ok>i{background:var(--ok)}.prog.mid>i{background:var(--mid)}.prog.bad>i{background:var(--bad)}
 .opt{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:12px;padding:8px 14px;min-height:40px;font:inherit;font-weight:600;cursor:pointer}
 .opt.on{background:var(--pri-l);border-color:var(--pri);color:var(--pri)}
 .opt.on.good{background:#e3f4ea;border-color:var(--ok);color:var(--ok)}.opt.on.badc{background:#fde7e7;border-color:var(--bad);color:var(--bad)}
@@ -313,7 +313,7 @@ const p2=n=>String(n).padStart(2,'0');
 const fmtD=ms=>{const d=new Date(ms);if(!Number.isFinite(d.getTime()))return 'غير محدد';return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`};
 const f1=n=>(Math.round(n*10)/10).toFixed(1);
 const pctTxt=v=>v==null?'—':f1(v)+'%';
-const sc=p=>p==null?'':p>=90?'ok':p>=75?'mid':'bad';
+const sc=p=>p==null?'':p>=90?'ok':p>=70?'mid':'bad';
 const VISIT={'1':'الزيارة الأولى','2':'الزيارة الثانية'};
 const visitOf=r=>VISIT[String(((r.data||{}).inspection||{}).visitNumber||'')]||'';
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('id'+Date.now()+Math.random().toString(16).slice(2));
@@ -576,7 +576,7 @@ function reportView(){
   ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:(viewer?'':'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>')}
   ${viewer?'':`<div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>`}
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
-  <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>مخالفات</th><th>مخالفات الأسعار</th></tr>
+  <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>عدد المخالفات</th><th>مخالفات الأسعار</th></tr>
   ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="4" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td><td>${l.priceViol||0}</td></tr>`).join('')}</table></div>
   ${editBar}<h3>المخالفات (${b.viol.length})</h3>${vcards||'<p class="ok">لا توجد مخالفات.</p>'}
   ${b.census.length?`<h3>ضوابط الحصر</h3>${cen}`:''}

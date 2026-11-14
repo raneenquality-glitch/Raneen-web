@@ -154,11 +154,21 @@ function unitControls(unitId, activeOnly=true){
   return C.controls.filter(k=>ids.has(k.categoryId)&&(!activeOnly||k.isActive));
 }
 // حساب الخصم: نفس منطق التطبيق (RaneenScoring.kt) بالظبط، عشان الأرقام تتطابق في كل مكان
-const AREA_PARTS_FLAG=16, AREA_PART_PENALTY=2;
-const AREA_IDS=['services_admin_i1','services_admin_i3','services_admin_i4','zayed_services_i2','zayed_services_i3','zayed_branch_manager_i3'];
+// نفس ترميز التطبيق (RaneenScoring.kt): bitmask للأجزاء (1،2،4،8،16) + علم 32. العلم القديم 16 (4 أجزاء) لسه مقروء.
+const AREA_PARTS_FLAG=32, LEGACY_AREA_FLAG=16, AREA_PART_PENALTY=2;
+const AREA_IDS=['services_admin_i1','services_admin_i3','services_admin_i4','zayed_services_i2','zayed_services_i3','zayed_branch_manager_i3',
+  'home_tools_i6','toys_kids_i6','furnishings_i6','electrical_i6','digital_furnishings_i6','digital_electricity_i6'];
+// بنود الأجزاء بتنطبق على القسم كله: نفس الجزء (نظافة / تخزين آمن) في أكتر من مجموعة = مرة واحدة (OR مش جمع)
+function mergeAreaParts(vals){ const v=vals.map(x=>Math.trunc(Number(x)||0)).filter(x=>x>0); if(!v.length) return 0;
+  const fl=v.filter(x=>(x&AREA_PARTS_FLAG)!==0), lg=v.filter(x=>(x&AREA_PARTS_FLAG)===0&&(x&LEGACY_AREA_FLAG)!==0);
+  if(!fl.length&&!lg.length) return v.reduce((a,b)=>a+b,0);
+  const bits=fl.reduce((a,x)=>a|(x&31),0)|lg.reduce((a,x)=>a|(x&15),0); return bits?(bits|AREA_PARTS_FLAG):0 }
+const sumViol=(id,vals)=>AREA_IDS.includes(id)?mergeAreaParts(vals):vals.reduce((a,x)=>a+(Number(x)||0),0);
 const areaPen=id=>id==='zayed_branch_manager_i3'?1:AREA_PART_PENALTY;
 const RENUMBER_UNITS=['branch_manager','zayed_branch_manager'];
 const AREAS=['منزلي','الألعاب','المفروشات','الكهرباء'];
+const AREAS5=AREAS.concat(['أدوات الحماية']);
+const CLEAN_STORE=['النظافة','التخزين الآمن'];
 const ZAREAS=['منزلي','المفروشات','الكهرباء','الكافيه'];   // أقسام فرع زايد
 const PART_LABELS={
   services_admin_i5:['حريمي','رجالي'], zayed_services_i4:['حريمي','رجالي'],
@@ -167,7 +177,8 @@ const PART_LABELS={
   services_admin_i8:['النظافة','الترتيب'], zayed_services_i7:['النظافة','الترتيب'],
   services_admin_i9:['المنطقة المحيطة','الواجهات الزجاجية'], zayed_services_i8:['المنطقة المحيطة','الواجهات الزجاجية'],
   maintenance_i13:['الصيانة','الدهان'],
-  branch_manager_i1:AREAS, branch_manager_i3:AREAS, services_admin_i1:AREAS, services_admin_i3:AREAS, services_admin_i4:AREAS,
+  branch_manager_i1:AREAS, branch_manager_i3:AREAS, services_admin_i1:AREAS5, services_admin_i3:AREAS, services_admin_i4:AREAS5,
+  home_tools_i6:CLEAN_STORE, toys_kids_i6:CLEAN_STORE, furnishings_i6:CLEAN_STORE, electrical_i6:CLEAN_STORE, digital_furnishings_i6:CLEAN_STORE, digital_electricity_i6:CLEAN_STORE,
   zayed_services_i2:ZAREAS, zayed_services_i3:ZAREAS, zayed_branch_manager_i3:ZAREAS,
   branch_manager_i4:['النظافة','المعوقات'], branch_manager_i5:['النظافة','المعوقات'],
   zayed_branch_manager_i4:['النظافة','المعوقات'], zayed_branch_manager_i5:['النظافة','المعوقات'],
@@ -189,7 +200,8 @@ function controlLoss(k,v){
     case 'branch_manager_i1': case 'branch_manager_i3': sel=(b(1)?1:0)+(b(2)?1:0)+(b(4)?1:0)+(b(8)?1:0); break;
     case 'services_admin_i1': case 'services_admin_i3': case 'services_admin_i4':
     case 'zayed_services_i2': case 'zayed_services_i3': case 'zayed_branch_manager_i3':
-      if(b(AREA_PARTS_FLAG)) sel=areaPen(k.id)*bitCnt(v&15); else return Math.min(max,v*pen); break;
+    case 'home_tools_i6': case 'toys_kids_i6': case 'furnishings_i6': case 'electrical_i6': case 'digital_furnishings_i6': case 'digital_electricity_i6':
+      if(b(AREA_PARTS_FLAG)) sel=areaPen(k.id)*bitCnt(v&31); else if(b(LEGACY_AREA_FLAG)) sel=areaPen(k.id)*bitCnt(v&15); else return Math.min(max,v*pen); break;
     case 'maintenance_i3': case 'branch_manager_i14': case 'security_i14': case 'cameras_i11': sel=v; break;
     default: return Math.min(max,v*pen);
   }
@@ -199,12 +211,13 @@ function partLabels(k,v){
   v=Math.trunc(Number(v)||0);
   if(k.id==='maintenance_i3') return [2,5].filter(n=>v===7||v===n);
   const L=PART_LABELS[k.id]; if(!L) return [];
-  if(AREA_IDS.includes(k.id)&&!(v&AREA_PARTS_FLAG)) return [];
-  const m=legacyParts(k.id,v);
+  if(AREA_IDS.includes(k.id)&&!(v&AREA_PARTS_FLAG)&&!(v&LEGACY_AREA_FLAG)) return [];
+  const m=AREA_IDS.includes(k.id)?areaMask(v):legacyParts(k.id,v);
   return L.filter((_,i)=>(m&(1<<i))!==0);
 }
-function togglePart(k,v,bit){ v=Math.trunc(Number(v)||0); if(AREA_IDS.includes(k.id)){ let cur=(v&AREA_PARTS_FLAG)?(v&15):0; cur^=bit; return cur?(cur|AREA_PARTS_FLAG):0 } return v^bit }
-const partOn=(k,v,bit)=>{ v=Math.trunc(Number(v)||0); if(AREA_IDS.includes(k.id)&&!(v&AREA_PARTS_FLAG)) return false; return ((AREA_IDS.includes(k.id)?(v&15):legacyParts(k.id,v))&bit)!==0 };
+const areaMask=v=>(v&AREA_PARTS_FLAG)?(v&31):((v&LEGACY_AREA_FLAG)?(v&15):0);
+function togglePart(k,v,bit){ v=Math.trunc(Number(v)||0); if(AREA_IDS.includes(k.id)){ let cur=areaMask(v); cur^=bit; return cur?(cur|AREA_PARTS_FLAG):0 } return v^bit }
+const partOn=(k,v,bit)=>{ v=Math.trunc(Number(v)||0); return ((AREA_IDS.includes(k.id)?areaMask(v):legacyParts(k.id,v))&bit)!==0 };
 const scoreNum=n=>{n=Number(n)||0; return n%1===0?String(n):n.toFixed(1)};
 const itemScoreText=(w,d)=>`الوزن: ${scoreNum(w)} | الخصم: ${scoreNum(d)} | المتبقي: ${scoreNum(w-d)}`;
 // ترقيم متسلسل من 1 لأوراق مدير المعرض (على البنود الفعّالة بالترتيب)
@@ -217,8 +230,9 @@ function displayNoMap(unitId){
 function weightSum(unitId){ return unitControls(unitId).reduce((a,k)=>a+(k.maxScore||0),0); }
 function computeUnit(unit, findings){
   const controls=unitControls(unit.id);
-  const total={};
-  findings.filter(f=>f.unitId===unit.id).forEach(f=>{ total[f.controlId]=(total[f.controlId]||0)+(f.violationCount||0); });
+  const lists={}, total={};
+  findings.filter(f=>f.unitId===unit.id).forEach(f=>{ (lists[f.controlId]=lists[f.controlId]||[]).push(f.violationCount||0); });
+  Object.keys(lists).forEach(id=>{ total[id]=sumViol(id,lists[id]) });
   let planned=0, loss=0;
   controls.forEach(k=>{
     planned+=k.maxScore||0;
@@ -309,7 +323,7 @@ function buildReport(r, names){
   const photosBy={}; (d.photos||[]).forEach(p=>{ (photosBy[p.findingId]=photosBy[p.findingId]||[]).push(p); });
   const unitOrder=Object.fromEntries(reportUnits.map((u,i)=>[u.id,i]));
   const dnAll=Object.assign({},...reportUnits.map(u=>displayNoMap(u.id)));
-  const totalsByCtl={}; (d.findings||[]).filter(f=>f.violationCount>0&&!na.has(f.unitId)&&reportUnitIds.has(f.unitId)).forEach(f=>{ totalsByCtl[f.controlId]=(totalsByCtl[f.controlId]||0)+(Number(f.violationCount)||0) });
+  const totalsByCtl={}, _tl={}; (d.findings||[]).filter(f=>f.violationCount>0&&!na.has(f.unitId)&&reportUnitIds.has(f.unitId)).forEach(f=>{ (_tl[f.controlId]=_tl[f.controlId]||[]).push(Number(f.violationCount)||0) }); Object.keys(_tl).forEach(id=>{ totalsByCtl[id]=sumViol(id,_tl[id]) });
   const viol=[], censusMap={};
   (d.findings||[]).filter(f=>f.violationCount>0 && !na.has(f.unitId) && reportUnitIds.has(f.unitId)).forEach(f=>{
     const k=byId(C.controls,f.controlId); if(!k) return;
@@ -377,8 +391,8 @@ if (typeof module!=='undefined') module.exports.makeZip=makeZip;
 <script>
 // الواجهة
 const CFG={url:"https://rdhmulfhwgdjtadpcsge.supabase.co",key:"sb_publishable_7zeqh0Qa5ppXCgqlohLVdA_JwtEEHoT",fn:"smart-processor",bucket:"report-photos",domain:"raneen.app"};
-const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"مدير إدارة",ADMIN:"مدير النظام",VIEWER:"مشاهد إدارة"};
-const ST={SUBMITTED:"مُرسل — بانتظار مدير المنطقة",REVIEWED:"تمت المراجعة — بانتظار مدير الإدارة",RETURNED:"أُعيد للمراقب",FINAL_APPROVED:"معتمد نهائيًا"};
+const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"نائب مدير الإدارة",DEPT_DIRECTOR:"مدير الإدارة",ADMIN:"مدير النظام",VIEWER:"مشاهد إدارة"};
+const ST={SUBMITTED:"مُرسل — بانتظار مدير المنطقة",REVIEWED:"تمت المراجعة — بانتظار نائب مدير الإدارة",RETURNED:"أُعيد للمراقب",FINAL_APPROVED:"معتمد نهائيًا"};
 const ST_SHORT={SUBMITTED:"مُرسل",REVIEWED:"تمت المراجعة",RETURNED:"مُعاد",FINAL_APPROVED:"معتمد"};
 const ACT_AR={SUBMITTED:"إرسال التقرير",RESUBMITTED:"إعادة إرسال بعد التعديل",REVIEWED:"مراجعة واعتماد (مدير المنطقة)",RETURNED:"إعادة للتعديل",RETURN_TO_AREA:"إعادة إلى مدير المنطقة",EDITED:"تعديل المحتوى (مدير)",FINAL_APPROVED:"اعتماد نهائي"};
 const el=id=>document.getElementById(id);

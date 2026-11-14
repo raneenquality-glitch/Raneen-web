@@ -27,7 +27,7 @@ input,select,textarea{font:inherit;width:100%;padding:9px 10px;border:1px solid 
 input[type=checkbox]{width:auto;margin:0 0 0 8px}label{font-size:13px;color:var(--gray)}label.chk{display:flex;align-items:center;gap:6px;color:var(--ink);font-size:15px;margin:6px 0}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[data-act]:focus-visible{outline:3px solid var(--pri);outline-offset:2px}button:disabled{cursor:wait}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}th{background:#fdecef;color:var(--red)}
 .ok{color:var(--ok)}.mid{color:var(--mid)}.bad{color:var(--bad)}.big{font-size:26px;font-weight:700}
-.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{text-align:center}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.kpi{text-align:center}
 .unitbar{background:var(--pri);color:#fff;border-radius:10px;padding:6px 10px;margin:12px 0 6px;font-weight:600}
 .catbar{font-weight:700;color:#a00000;margin:10px 4px 4px;font-size:14px}
 .viol{border-right:5px solid var(--bad);background:#fff6f6}.muted{color:var(--gray);font-size:13px}
@@ -41,7 +41,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 @media (max-width:640px){
   body{font-size:14px}main{padding:10px}.card{padding:11px;border-radius:10px}
   header.top{padding:10px}header.top h1{font-size:16px;flex-basis:100%}header.top button{flex:1}
-  nav.tabs{padding:8px 10px}.kpis{grid-template-columns:1fr 1fr;gap:7px}
+  nav.tabs{padding:8px 10px}.kpis{grid-template-columns:repeat(3,1fr);gap:7px}
   .big{font-size:22px}.row{gap:7px}table{display:block;overflow-x:auto;white-space:nowrap}
   .thumb{width:92px;height:72px}button,.btn{padding:8px 10px}
 }
@@ -91,6 +91,21 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
 @media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
 .snd{font-size:12px;font-weight:800;color:var(--pri);margin-bottom:2px}
+/* شكل التقرير = نفس PDF التطبيق: كارت بيانات، 3 كروت متوسطات، جدول درجات، مخالفات، حصر، الحصر المجمّع، ملاحظات الزيارة في الآخر */
+.printhead{display:none}
+.infocard{background:#f9f9f9}.infogrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}.infogrid small{display:block;color:var(--gray);font-size:12px}.infogrid b{font-size:15px}
+.censum h2{color:var(--pri);margin:22px 0 6px}.censum h4{margin:16px 0 6px;font-size:15px;color:var(--ink)}
+.censum tr.tot td{background:#fff59d;font-weight:700}.censum td.grp{font-weight:700}.censum tr.vio td{background:#fff5f5}
+.notesblk h3{color:var(--pri);margin:0 0 6px}.notesblk .ln{margin:4px 0}
+@media print{
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .printhead{display:flex;justify-content:space-between;align-items:center;background:var(--pri)!important;color:#fff;padding:12px 16px;margin:0 0 12px}
+  .printhead b{font-size:20px;display:block}.printhead small{font-size:11px;opacity:.9}.printhead span{font-weight:700;font-size:12px}
+  table{display:table!important;white-space:normal!important;overflow:visible!important}
+  tr{break-inside:avoid}h3,h4{break-after:avoid}
+  .kpis{grid-template-columns:repeat(3,1fr)}.infogrid{grid-template-columns:1fr 1fr}
+  .censum{break-before:page}.censum .card{break-inside:auto}
+}
 </style>
 </head>
 <body>
@@ -218,10 +233,68 @@ function computeUnit(unit, findings){
 const avg=a=>a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
 function templateLabel(id){return id==='smart'?'تقييم معارض سمارت':id==='digital'?'تقييم معارض الديجيتال':id==='offline'?'تقييم المعارض الأوف لاين':id==='zayed'?'تقييم معارض سمارت':'تقييم المعارض الأوف لاين';} // تجميع الوحدات لحساب النتائج: MAIN = أقسام التشغيل (بما فيها الخدمات)، MANAGER = مدير المعرض (في النتيجة النهائية بس)، SUPPORT = الإدارات المساعدة
 function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==='zayed_branch_manager') return 'MANAGER'; return u.kind==='SECTION'?'MAIN':'SUPPORT'; }
+
+const money=v=>(Number(v)||0).toFixed(2);
+// ترتيب الوحدات زي التطبيق: أقسام التشغيل الأول (بالترتيب المعتمد) وبعدها الإدارات المساعدة
+const _nrmAr=s=>String(s||'').replace(/[إأآ]/g,'ا').replace(/ /g,'');
+const OPS_ORDER=['قسم الأدوات المنزلية','قسم الألعاب ومستلزمات الأطفال','قسم المفروشات','قسم الكهرباء','قسم الخدمات وعمال التحميل','قسم مدير المعرض'];
+const SUP_ORDER=['إدارة خدمة العملاء','إدارة الكاشير','إدارة الكاميرات','إدارة الأمن','إدارة الاستلامات','إدارة الصيانة','إدارة التكييفات','إدارة الموارد البشرية'];
+function unitOrderIdx(name,kind){ const n=_nrmAr(name); const list=kind==='SECTION'?OPS_ORDER:SUP_ORDER; const i=list.findIndex(t=>{const x=_nrmAr(t); return n.includes(x)||x.includes(n)}); return i<0?1e9:i }
+const unitSort=(a,b)=>((a.kind==='SECTION'?0:1)-(b.kind==='SECTION'?0:1))||(unitOrderIdx(a.name,a.kind)-unitOrderIdx(b.name,b.kind))||((a.sortOrder||0)-(b.sortOrder||0))||String(a.name||'').localeCompare(String(b.name||''),'ar');
+
+// الحصر المجمّع (نفس منطق CensusSummaryBuilder / InlineCensusData في التطبيق)
+const CENSUS_PFX='RQ_CENSUS_V1:', MAINT_CTL='__maintenance_census__', MAINT_PFX='RQ_MAINTENANCE_CENSUS_V1:';
+function inlineCensus(note){ if(typeof note!=='string'||!note.startsWith(CENSUS_PFX)) return {};
+  try{ const j=JSON.parse(note.slice(CENSUS_PFX.length)), o={}; Object.keys(j).forEach(k=>{ const it=j[k]; if(it&&typeof it==='object') o[k]={count:Math.max(0,parseInt(it.count)||0),value:Math.max(0,Number(it.value)||0)} }); return o }catch(e){ return {} } }
+const INL_LABELS={partial_damage:'عدد صاين تلف جزئي',no_shelf:'عدد الشيلفات',mismatch:'عدم تطابق',no_price:'عدد الأسعار',no_code:'أكواد',stand_offer:'صاين عرض',stand_price:'صاين سعر',display_ruler:'مسطرة',display_sadabat:'السدابات',display_acrylic:'الاكليرك',display_polystyrene:'بولسترين',display_half_a6_acrylic:'اكليرك نص A6',connections:'عدد الوصلات',ac_units:'عدد التكييفات',no_stand:'عدد بدون صاين (تسجيل قديم)',offer_not_applied:'عدد صاين عرض غير منفذ (تسجيل قديم)',expired_offer:'عدد صاين عرض منتهي (تسجيل قديم)'};
+// ملخص حصر ملحق بالمخالفة (بيجمع أكتر من مجموعة لو البند اتكرر)
+function inlineCensusText(notes){ const tot={}; [].concat(notes||[]).forEach(n=>{ const v=inlineCensus(n); Object.keys(v).forEach(k=>{ const t=tot[k]=tot[k]||{count:0,value:0}; t.count+=v[k].count; t.value+=v[k].value }) });
+  const out=[]; Object.keys(tot).forEach(k=>{ const l=INL_LABELS[k]; if(!l) return; const v=tot[k];
+    if(k==='no_code'){ if(v.count>0||v.value>0) out.push(`${l} (${v.count}) بقيمة (${money(v.value)} ج.م)`) } else if(v.count>0) out.push(`${l}: ${v.count}`) });
+  const comb=['partial_damage','stand_offer','stand_price'].reduce((a,k)=>a+((tot[k]&&tot[k].count)||0),0); if(comb>0) out.push(`إجمالي (${comb})`);
+  return out.join('، ') }
+const DISPLAY_TOOLS=[['display_ruler','مسطرة',26.0],['display_sadabat','المداسات (السدابات)',8.42],['display_acrylic','الاكليرك',33.25],['display_polystyrene','بولسترين',5.0],['display_half_a6_acrylic','اكليرك نص A6',16.45]];
+const MISSING_IDX={display_ruler:[1,2],display_acrylic:[3,4],display_half_a6_acrylic:[5,6],display_sadabat:[7,8],display_polystyrene:[9,10]};
+function buildCensusSummary(d,na,unitIds,units){
+  const active=(d.findings||[]).filter(f=>!na.has(f.unitId)&&unitIds.has(f.unitId));
+  const counts={}; let codeValue=0; const inc=(k,c)=>{ if(c>0) counts[k]=(counts[k]||0)+c };
+  active.filter(f=>f.controlId!==MAINT_CTL&&(Number(f.violationCount)||0)>0).forEach(f=>{
+    const inl=inlineCensus(f.note);
+    Object.keys(inl).forEach(k=>{ inc('in_'+k,inl[k].count); if(k==='no_code') codeValue+=inl[k].value });
+    const m=/^cns_(pricing|missing)_(.+)_(\d+)$/.exec(f.controlId||''); if(!m) return;
+    const n=parseInt(m[3]), c=Number(f.violationCount)||0; inc(m[1]+n,c);
+    if(m[1]==='pricing'&&n>=10&&n<=12){ const pr=(typeof f.note==='string'&&f.note.startsWith('PRICE:'))?parseFloat(f.note.slice(6)):0; codeValue+=c*(pr||0) }
+  });
+  const g=(...k)=>k.reduce((a,x)=>a+(counts[x]||0),0);
+  const price=[
+    {group:'شيلفات',label:'بدون شيلف',count:g('in_no_shelf','pricing1')},
+    {group:'شيلفات',label:'عدم تطابق',count:g('in_mismatch','pricing3')},
+    {group:'صاينات',label:'صاين عرض',count:g('in_stand_offer','pricing5','pricing6','in_partial_damage','pricing7')},
+    {group:'صاينات',label:'صاين سعر',count:g('in_stand_price')},
+    {group:'أكواد',label:'عدد',count:g('in_no_code','pricing10','pricing11','pricing12')},
+    {group:'أكواد',label:'قيمة',count:0,money:codeValue},
+    {group:'سعر',label:'عدد الأسعار',count:g('in_no_price','pricing13','pricing14','pricing15')}
+  ];
+  [['شيلفات','شيلف تالف',g('pricing2')],['صاينات','بدون صاين',g('pricing4')],['صاينات','بدون توكر',g('pricing8')],['صاينات','صاين / توكر تالف',g('pricing9')]].filter(x=>x[2]>0).forEach(x=>price.push({group:x[0],label:x[1],count:x[2]}));
+  price.forEach(r=>{ r.valueText=r.money!=null?money(r.money):String(r.count) });
+  const priceTotal=price.filter(r=>r.money==null).reduce((a,r)=>a+r.count,0);
+  const display=DISPLAY_TOOLS.map(([key,label,piece])=>{ const miss=(MISSING_IDX[key]||[]).reduce((a,i)=>a+g('missing'+i),0); const count=g('in_'+key)+miss; return {label,count,pieceValue:piece,total:count*piece} });
+  const order={}; units.forEach((u,i)=>order[u.id]=i);
+  const maintenance=active.filter(f=>f.controlId===MAINT_CTL&&typeof f.note==='string'&&f.note.startsWith(MAINT_PFX)).map(f=>{
+    let arr=[]; try{ arr=JSON.parse(f.note.slice(MAINT_PFX.length)) }catch(e){}
+    const rows=(Array.isArray(arr)?arr:[]).map(o=>{ const m={item:o.item||'',state:o.inspectionState||'غير مخالف',problem:o.problem||'',faultDate:o.faultDate||'',ticket:o.ticket||'',escalation:o.escalation||'لم يتم التصعيد',status:o.status||'معلق',count:Math.max(0,parseInt(o.count)||0)};
+      m.isViolation=m.state==='مخالف'; m.hasDetails=!!(m.problem||m.ticket||m.faultDate||m.count>0); m.itemWithCount=m.count>0?`${m.item} (العدد: ${m.count})`:m.item; return m });
+    if(!rows.length) return null;
+    const u=units.find(x=>x.id===f.unitId), name=u?u.name:f.unitId;
+    const isAc=String(f.unitId).includes('air')||String(f.unitId).startsWith('ac')||String(name).includes('تكييف');
+    return {unitId:f.unitId,unitName:name,isAc,title:isAc?'حصر صيانة التكييفات':'حصر الصيانة',rows,violated:rows.filter(r=>r.isViolation).length,shown:rows.filter(r=>r.isViolation||r.hasDetails)};
+  }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
+  return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance};
+}
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
   const na=new Set((d.units||[]).filter(u=>u.isNA).map(u=>u.unitId));
-  const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));}).filter(u=>!r._viewer||(d.units||[]).some(x=>x.unitId===u.id));
+  const branchForTemplate=byId(C.branches,r.branch_id)||{}; const explicitTemplateId=d.inspection&&d.inspection.templateId; const templateId=explicitTemplateId||(/زايد|zayed/i.test(String(branchForTemplate.name||''))?'zayed':'main');   const reportUnits=C.units.filter(u=>{if(!u.isActive)return false;const id=String(u.id||'');const ut=u.templateId||'main';if(templateId==='offline')return (ut==='main'&&!id.startsWith('digital_'))||ut==='offline';if(templateId==='smart')return ut==='zayed';if(templateId==='digital')return id.startsWith('digital_')||(ut==='main'&&!id.startsWith('digital_')&&!['furnishings','electrical'].includes(id));if(!explicitTemplateId)return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));return ut===templateId||(templateId==='zayed'&&id.startsWith('digital_'));}).filter(u=>!r._viewer||(d.units||[]).some(x=>x.unitId===u.id)).sort(unitSort);
   const reportUnitIds=new Set(reportUnits.map(u=>u.id));
   const lines=reportUnits.map(u=> na.has(u.id)? {unit:u,na:true} : Object.assign({unit:u,na:false}, computeUnit(u,(d.findings||[]).filter(f=>reportUnitIds.has(f.unitId)))));
   // إجمالي مخالفات الأسعار لكل قسم (من حصر الأسعار). الاستلامات: عدد الأقسام اللي اتاخدت فيها مخالفة في بند 2
@@ -265,6 +338,7 @@ function buildReport(r, names){
   const missing=viol.filter(v=>v.control.photoRequired && !v.photos.length).length;
   return {
     r, d, lines, viol, census, missing,
+    cs: buildCensusSummary(d,na,reportUnitIds,reportUnits),
     templateId, templateLabel: templateLabel(templateId),
     branch:(byId(C.branches,r.branch_id)||{}).name||'فرع محذوف',
     inspector:r._inspNames||(names&&names[r.inspector_id])||'',
@@ -275,7 +349,7 @@ function buildReport(r, names){
     finAvg: avg(lines.filter(l=>!l.na&&l.percent!=null&&unitGroup(l.unit)!=='SUPPORT').map(l=>l.percent))
   };
 }
-if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,weightSum,unitControls,controlLoss,partLabels,displayNoMap,itemScoreText};
+if (typeof module!=='undefined') module.exports={normAr,matches,C,setCatalog,catalogItems,computeUnit,buildReport,buildCensusSummary,inlineCensusText,weightSum,unitControls,controlLoss,partLabels,displayNoMap,itemScoreText};
 // ZIP (بدون ضغط)
 const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
 function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
@@ -534,6 +608,23 @@ async function eSave(){
     EDIT=null; toast('تم حفظ التعديلات'); render();
   }catch(e){ if(btn)btn.disabled=false; const x=el('eerr'); if(x) x.textContent=errTxt(e) }
 }
+
+function censusSummaryHtml(cs){
+  const th=a=>`<tr>${a.map(x=>`<th>${x}</th>`).join('')}</tr>`;
+  let lg='';
+  const priceRows=cs.price.map(r=>{ const first=r.group!==lg; lg=r.group; return `<tr><td class="${first?'grp':''}">${first?esc(r.group):''}</td><td>${esc(r.label)}</td><td>${esc(r.valueText)}</td></tr>` }).join('');
+  let h=`<div class="censum"><h2>الحصر المجمّع</h2>
+  <h4>أعداد مخالفات الأسعار</h4><div class="card"><table>${th(['المجموعة','البند','العدد / القيمة'])}${priceRows}<tr class="tot"><td>الإجمالي</td><td></td><td>${cs.priceTotal}</td></tr></table></div>
+  <h4>أعداد مخالفات أدوات العرض ووسائل العرض</h4><div class="card"><table>${th(['النوع','العدد','قيمة القطعة','الإجمالي'])}${cs.display.map(d=>`<tr><td>${esc(d.label)}</td><td>${d.count}</td><td>${money(d.pieceValue)}</td><td>${money(d.total)}</td></tr>`).join('')}<tr class="tot"><td>الإجمالي</td><td>${cs.displayTotalCount}</td><td></td><td>${money(cs.displayTotalValue)}</td></tr></table></div>`;
+  cs.maintenance.forEach(b=>{
+    h+=`<h4>${esc(b.title)} — ${esc(b.unitName)}</h4><div class="muted" style="margin-bottom:6px">عدد البنود: ${b.rows.length} · المخالفة: ${b.violated}</div><div class="card"><table>${th(['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند'])}${b.shown.length?b.shown.map(m=>`<tr class="${m.isViolation?'vio':''}"><td>${esc(m.itemWithCount)}</td><td>${esc(m.state)}</td><td>${esc(m.problem)}</td><td>${esc(m.faultDate)}</td><td>${esc(m.ticket)}</td><td>${esc(m.escalation)}</td><td>${esc(m.status)}</td></tr>`).join(''):'<tr><td colspan="7" class="muted">مفيش بنود مخالفة</td></tr>'}</table></div>`;
+  });
+  return h+'</div>';
+}
+function notesHtml(notes){
+  const ls=String(notes||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  return `<div class="card notesblk"><h3>ملاحظات الزيارة العامة</h3>${(ls.length?ls:['لا توجد ملاحظات عامة مسجلة.']).map(x=>`<div class="ln" style="white-space:pre-wrap">${esc(x)}</div>`).join('')}</div>`;
+}
 function reportView(){
   const r=curReport(); if(!r) return '<p>التقرير مش موجود</p>';
   const editing=!!(EDIT&&EDIT.id===r.id); const rr=editing?Object.assign({},r,{data:Object.assign({},r.data,{findings:EDIT.findings})}):r; const b=view.b=buildReport(rr,NAMES);
@@ -545,23 +636,24 @@ function reportView(){
   if(!editing){   // نفس البند اتكرر (مجموعات/أجزاء مختلفة): كارت واحد وكل صوره وملاحظاته تحته
     const m=new Map();
     list.forEach(v=>{const k=(v.unit?v.unit.id:'')+'|'+v.control.id;
-      if(!m.has(k)) m.set(k,Object.assign({},v,{groupNames:[],photos:[],notes:[],subparts:[]}));
-      const e=m.get(k); if(v.group) e.groupNames.push(v.group.name);
+      if(!m.has(k)) m.set(k,Object.assign({},v,{groupNames:[],photos:[],notes:[],subparts:[],inl:[]}));
+      const e=m.get(k); if(v.group) e.groupNames.push(v.group.name); e.inl.push(v.finding.note);
       e.photos=e.photos.concat(v.photos);
       if(v.finding.violationNote) e.notes.push((v.group?v.group.name+': ':'')+v.finding.violationNote);
       v.subparts.forEach(x=>{if(!e.subparts.includes(x)) e.subparts.push(x)});
     });
     list=[...m.values()].map(e=>Object.assign(e,{deduction:e.itemDeducted}));
   }
-  let last='',lastCat='',h='';
+  let last='',lastCat='',lastKind='',h='';
   list.forEach(v=>{
-    if(v.unit&&v.unit.id!==last){last=v.unit.id;lastCat='';h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
+    if(v.unit&&v.unit.id!==last){last=v.unit.id;lastCat='';const kd=v.unit.kind==='ADMINISTRATION'?'ADMINISTRATION':'SECTION';const pre=kd!==lastKind?(kd==='SECTION'?'أولًا: إدارة التشغيل — ':'ثانيًا: الإدارات المساعدة — '):'';lastKind=kd;h+=`<div class="unitbar">${pre}${esc(v.unit.name)}</div>`}
     const cat=v.category?v.category.name:''; if(cat!==lastCat){lastCat=cat;h+=`<div class="catbar">▪ ${esc(cat)}</div>`}
     const gtxt=(!editing&&v.groupNames&&v.groupNames.length)?` (${esc(v.groupNames.join('، '))})`:(v.group?` (${esc(v.group.name)})`:'');
     const note=editing?'':((v.notes&&v.notes.length)?v.notes.join(' — '):(v.finding.violationNote||''));
+    const inlTxt=editing?'':inlineCensusText(v.inl||v.finding.note);
     h+=`<div class="card viol"><div class="row"><b class="grow">${v.no}. ${esc(v.control.text)}${gtxt}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div>
     <div class="muted"><b>${itemScoreText(v.weight,v.itemDeducted)}</b> · الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
-    ${editing?editBox(v):(note?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(note)}</div>`:'')}
+    ${editing?editBox(v):((inlTxt?`<div class="note"><b>الحصر:</b> ${esc(inlTxt)}</div>`:'')+(note?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(note)}</div>`:''))}
     ${v.photos.length?(`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});
   return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
@@ -569,17 +661,26 @@ function reportView(){
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;
   const partsInfo=(r._parts||wait)?`<div class="card">${(r._parts||[]).map((x,i)=>`<div class="row" style="margin:4px 0"><b class="grow">${esc(r._labels[i])} — ${esc(NAMES[x.inspector_id]||'')}</b><span class="chip st-${x.status}">${ST_SHORT[x.status]||x.status}</span></div>`).join('')}${wait?`<div class="err" style="margin-top:6px">⏳ في انتظار تقرير: ${r._waiting.map(w=>esc((SEAT_AR[w.seat]||'')+' — '+w.name)).join('، ')}</div>`:''}</div>`:'';
   return `<div class="row noprint" style="margin-bottom:10px"><button class="alt" data-act="tab" data-id="reports">← رجوع</button></div>
-  <div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(b.branch)}</h2><span class="chip st-${r.status}">${ST_SHORT[r.status]}</span></div>
-    <p>نوع التقييم: <b>${esc(b.templateLabel||'تقييم المعارض الأوف لاين')}</b><br>رقم التقرير: ${esc(r.report_number)}<br>${visitOf(r)?'<b>'+visitOf(r)+'</b><br>':''}تاريخ الزيارة: ${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}<br>المراقب: ${esc(b.inspector)}<br><b>${ST[r.status]||r.status}</b></p>${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="muted" style="margin-bottom:4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div>`:''}</div>
+  <div class="printhead"><div><b>تقرير جودة</b><small>شركة رنين — إدارة الجودة</small></div><span>${esc(r.report_number)}</span></div>
+  <div class="card infocard"><div class="infogrid">
+    <div><small>الفرع</small><b>${esc(b.branch)}</b></div>
+    <div><small>تاريخ الزيارة</small><b>${fmtD((b.d.inspection||{}).visitDate||Date.parse(r.updated_at))}</b></div>
+    <div><small>المراقب</small><b>${esc(b.inspector)}</b></div>
+    <div><small>الحالة</small><b>${ST[r.status]||r.status}</b></div>
+    ${visitOf(r)?`<div><small>رقم الزيارة</small><b>${visitOf(r)}</b></div>`:''}
+    <div class="noprint"><small>نوع التقييم</small><b>${esc(b.templateLabel||'تقييم المعارض الأوف لاين')}</b></div>
+    <div class="noprint"><small>رقم التقرير</small><b>${esc(r.report_number)}</b></div></div>
+    ${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]?`<div class="noprint"><div class="muted" style="margin:10px 0 4px">مرحلة الاعتماد</div><div class="prog ${r.status==='FINAL_APPROVED'?'ok':''}"><i style="width:${({SUBMITTED:33,REVIEWED:66,FINAL_APPROVED:100})[r.status]}%"></i></div></div>`:''}</div>
   ${partsInfo}
   ${retNote?`<div class="card" style="background:#ffebee"><b>سبب الإعادة (${esc(retNote.actorName)}):</b> ${esc(retNote.note||'')}</div>`:''}
-  ${b.d.inspection&&b.d.inspection.notes?`<div class="card"><h3 style="margin-top:0">ملاحظات الزيارة العامة</h3><div style="white-space:pre-wrap">${esc(b.d.inspection.notes)}</div></div>`:(viewer?'':'<div class="card"><b>ملاحظات الزيارة العامة:</b> <span class="err">غير مسجلة في بيانات التقرير</span></div>')}
   ${viewer?'':`<div class="kpis">${scBox(b.mainAvg,'متوسط أقسام التشغيل')}${scBox(b.finAvg,'النتيجة النهائية')}${scBox(b.supAvg,'الإدارات المساعدة (النتيجة النهائية)')}</div>`}
   ${b.missing?`<p class="err">⚠ فيه ${b.missing} مخالفة محتاجة صورة ومفيش عليها.</p>`:''}
   <h3>الدرجات</h3><div class="card"><table><tr><th>القسم / الإدارة</th><th>الدرجة</th><th>النسبة</th><th>عدد المخالفات</th><th>مخالفات الأسعار</th></tr>
   ${b.lines.map(l=>l.na?`<tr><td>${esc(l.unit.name)}</td><td colspan="4" class="muted">N/A</td></tr>`:`<tr><td>${esc(l.unit.name)}</td><td>${f1(l.actual)} / ${f1(l.planned)}</td><td class="${sc(l.percent)}"><b>${pctTxt(l.percent)}</b><div class="prog ${sc(l.percent)}"><i style="width:${Math.max(0,Math.min(100,l.percent||0))}%"></i></div></td><td>${l.violCount}</td><td>${l.priceViol||0}</td></tr>`).join('')}</table></div>
   ${editBar}<h3>المخالفات (${b.viol.length})</h3>${vcards||'<p class="ok">لا توجد مخالفات.</p>'}
   ${b.census.length?`<h3>ضوابط الحصر</h3>${cen}`:''}
+  ${censusSummaryHtml(b.cs)}
+  ${notesHtml((b.d.inspection||{}).notes)}
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
   <div class="noprint" id="acts">
     ${canArea&&!editing?`<button data-act="approve" data-a="REVIEWED">اعتماد المراجعة</button> <button class="alt" data-act="retForm">إعادة للمراقب</button>`:''}
@@ -657,11 +758,17 @@ async function doFinal(){
 }
 function csvReport(){
   const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
-  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['ملاحظات الزيارة العامة',(b.d.inspection||{}).notes||''],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات','مخالفات الأسعار']);
+  rows.push(['رقم التقرير',b.r.report_number],['الفرع',b.branch],['المراقب',b.inspector],['الحالة',ST[b.r.status]],['متوسط الأقسام',pctTxt(b.secAvg)],['متوسط الإدارات',pctTxt(b.admAvg)],[],['القسم','الدرجة','من','النسبة','المخالفات','مخالفات الأسعار']);
   b.lines.forEach(l=>rows.push(l.na?[l.unit.name,'N/A']:[l.unit.name,f1(l.actual),f1(l.planned),f1(l.percent),l.violCount,l.priceViol||0]));
   rows.push([],['القسم','الكاتجري','رقم البند','البند','الوزن','الخصم','المتبقي','المجموعة','ملاحظات المخالفة','عدد الصور']);
   b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.no,v.control.text,v.weight,v.itemDeducted,v.weight-v.itemDeducted,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
   if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}
+  {const cs=b.cs; rows.push([],['الحصر المجمّع'],['أعداد مخالفات الأسعار'],['المجموعة','البند','العدد / القيمة']);
+    cs.price.forEach(r=>rows.push([r.group,r.label,r.valueText])); rows.push(['الإجمالي','',cs.priceTotal]);
+    rows.push([],['أعداد مخالفات أدوات العرض ووسائل العرض'],['النوع','العدد','قيمة القطعة','الإجمالي']);
+    cs.display.forEach(d=>rows.push([d.label,d.count,money(d.pieceValue),money(d.total)])); rows.push(['الإجمالي',cs.displayTotalCount,'',money(cs.displayTotalValue)]);
+    cs.maintenance.forEach(bl=>{rows.push([],[bl.title+' — '+bl.unitName],['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند']); bl.shown.forEach(m=>rows.push([m.itemWithCount,m.state,m.problem,m.faultDate,m.ticket,m.escalation,m.status]))});
+    rows.push([],['ملاحظات الزيارة العامة'],[(b.d.inspection||{}).notes||'لا توجد ملاحظات عامة مسجلة.'])}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }
 

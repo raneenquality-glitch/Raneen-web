@@ -136,9 +136,11 @@ function matches(q, ...fields){
 }
 const C = {branches:[],units:[],groups:[],cats:[],controls:[]};
 const OLD_I13_HINT='الصيانة درجتان، والدهان درجتان؛ يمكن تحديد كل جزء بشكل مستقل', NEW_I13_HINT='اختيار الصيانة أو الدهان (أو الاتنين) يخصم الوزن كامل (4 درجات)';
-// كل "قسم" يبدأ اسمه بكلمة قسم (قسم الأدوات المنزلية، قسم الألعاب ومستلزمات الأطفال...) — نفس منطق التطبيق (CatalogFixups)
+// كل "قسم" يبدأ اسمه بكلمة قسم وكل إدارة مساعدة بكلمة إدارة (إدارة الكاميرات، إدارة الأمن...) — نفس منطق التطبيق (CatalogFixups)
 function fixCatalogNames(){
-  C.units.forEach(u=>{ const n=String(u.name||'').trim(); if(u.kind==='SECTION'&&!n.startsWith('قسم')) u.name='قسم '+n });
+  C.units.forEach(u=>{ const n=String(u.name||'').trim();
+    if(u.kind==='SECTION'&&!n.startsWith('قسم')) u.name='قسم '+n;
+    else if(u.kind==='ADMINISTRATION'&&!/^(إدارة|ادارة|الإدارة|الادارة)/.test(n)) u.name='إدارة '+n });
   C.controls.forEach(k=>{ if(k.id==='maintenance_i13'&&k.hint===OLD_I13_HINT) k.hint=NEW_I13_HINT });
 }
 function setCatalog(items){
@@ -266,6 +268,10 @@ const unitSort=(a,b)=>((a.kind==='SECTION'?0:1)-(b.kind==='SECTION'?0:1))||(unit
 
 // الحصر المجمّع (نفس منطق CensusSummaryBuilder / InlineCensusData في التطبيق)
 const CENSUS_PFX='RQ_CENSUS_V1:', MAINT_CTL='__maintenance_census__', MAINT_PFX='RQ_MAINTENANCE_CENSUS_V1:';
+// حصر هيكل الفرع (قسم الموارد البشرية) — نفس ترميز التطبيق (StructureCensus)
+const STRUCT_CTL='__structure_census__', STRUCT_PFX='RQ_STRUCTURE_CENSUS_V1:';
+const STRUCT_GROUPS=[['operations','إدارة التشغيل'],['services','الخدمات'],['customer_cashier','خدمة العملاء والكاشير'],['security','الأمن'],['cameras','الكاميرات']];
+const signedN=d=>d===0?'0':'\u200E'+(d>0?'+':'')+d;
 function inlineCensus(note){ if(typeof note!=='string'||!note.startsWith(CENSUS_PFX)) return {};
   try{ const j=JSON.parse(note.slice(CENSUS_PFX.length)), o={}; Object.keys(j).forEach(k=>{ const it=j[k]; if(it&&typeof it==='object') o[k]={count:Math.max(0,parseInt(it.count)||0),value:Math.max(0,Number(it.value)||0)} }); return o }catch(e){ return {} } }
 const INL_LABELS={partial_damage:'عدد صاين تلف جزئي',no_shelf:'عدد الشيلفات',mismatch:'عدم تطابق',no_price:'عدد الأسعار',no_code:'أكواد',stand_offer:'صاين عرض',stand_price:'صاين سعر',display_ruler:'مسطرة',display_sadabat:'السدابات',display_acrylic:'الاكليرك',display_polystyrene:'بولسترين',display_half_a6_acrylic:'اكليرك نص A6',connections:'عدد الوصلات',ac_units:'عدد التكييفات',no_stand:'عدد بدون صاين (تسجيل قديم)',offer_not_applied:'عدد صاين عرض غير منفذ (تسجيل قديم)',expired_offer:'عدد صاين عرض منتهي (تسجيل قديم)'};
@@ -311,7 +317,17 @@ function buildCensusSummary(d,na,unitIds,units){
     const isAc=String(f.unitId).includes('air')||String(f.unitId).startsWith('ac')||String(name).includes('تكييف');
     return {unitId:f.unitId,unitName:name,isAc,title:isAc?'حصر صيانة التكييفات':'حصر الصيانة',rows,violated:rows.filter(r=>r.isViolation).length,shown:rows.filter(r=>r.isViolation||r.hasDetails)};
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
-  return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance};
+  const structure=active.filter(f=>f.controlId===STRUCT_CTL&&typeof f.note==='string'&&f.note.startsWith(STRUCT_PFX)).map(f=>{
+    let o={}; try{ o=JSON.parse(f.note.slice(STRUCT_PFX.length))||{} }catch(e){ return null }
+    const by={}; (Array.isArray(o.groups)?o.groups:[]).forEach(g=>{ if(g&&g.key) by[g.key]=g });
+    const groups=STRUCT_GROUPS.map(([key,name])=>{ const g=by[key]||{}; const planned=Math.max(0,parseInt(g.planned)||0), actual=Math.max(0,parseInt(g.actual)||0); return {key,name,planned,actual,diff:actual-planned} });
+    const within=Math.max(0,parseInt(o.within)||0), outside=Math.max(0,parseInt(o.outside)||0);
+    const totalPlanned=groups.reduce((a,g)=>a+g.planned,0), totalActual=groups.reduce((a,g)=>a+g.actual,0);
+    if(!totalPlanned&&!totalActual&&!within&&!outside) return null;
+    const u=units.find(x=>x.id===f.unitId);
+    return {unitId:f.unitId,unitName:u?u.name:f.unitId,groups,within,outside,totalPlanned,totalActual,totalDiff:totalActual-totalPlanned,deficit:groups.reduce((a,g)=>a+Math.max(0,g.planned-g.actual),0),classified:within+outside};
+  }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
+  return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance,structure};
 }
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
@@ -642,6 +658,15 @@ function censusSummaryHtml(cs){
   let h=`<div class="censum"><h2>الحصر المجمّع</h2>
   <h4>أعداد مخالفات الأسعار</h4><div class="card"><table>${th(['المجموعة','البند','العدد / القيمة'])}${priceRows}<tr class="tot"><td>الإجمالي</td><td></td><td>${cs.priceTotal}</td></tr></table></div>
   <h4>أعداد مخالفات أدوات العرض ووسائل العرض</h4><div class="card"><table>${th(['النوع','العدد','قيمة القطعة','الإجمالي'])}${cs.display.map(d=>`<tr><td>${esc(d.label)}</td><td>${d.count}</td><td>${money(d.pieceValue)}</td><td>${money(d.total)}</td></tr>`).join('')}<tr class="tot"><td>الإجمالي</td><td>${cs.displayTotalCount}</td><td></td><td>${money(cs.displayTotalValue)}</td></tr></table></div>`;
+  (cs.structure||[]).forEach(b=>{
+    const neg=d=>d<0?' style="color:#c8102e;font-weight:700"':'';
+    h+=`<h4>حصر هيكل الفرع — ${esc(b.unitName)}</h4><div class="card"><table>${th(['هيكل الفرع'].concat(b.groups.map(g=>esc(g.name)),['الإجمالي']))}
+      <tr><td class="grp">العدد</td>${b.groups.map(g=>`<td>${g.planned}</td>`).join('')}<td>${b.totalPlanned}</td></tr>
+      <tr><td class="grp">العدد الفعلي</td>${b.groups.map(g=>`<td>${g.actual}</td>`).join('')}<td>${b.totalActual}</td></tr>
+      <tr class="tot"><td colspan="${b.groups.length+2}">عجز الهيكل</td></tr>
+      <tr><td class="grp">الفرق</td>${b.groups.map(g=>`<td${neg(g.diff)}>${signedN(g.diff)}</td>`).join('')}<td${neg(b.totalDiff)}>${signedN(b.totalDiff)}</td></tr></table></div>
+      <div class="card"><table>${th(['تصنيف العجز','عجز داخل الفترة المسموحة','عجز خارج الفترة المسموحة','الإجمالي'])}<tr><td class="grp">العدد</td><td>${b.within}</td><td>${b.outside}</td><td>${b.classified}</td></tr></table></div>`;
+  });
   cs.maintenance.forEach(b=>{
     h+=`<h4>${esc(b.title)} — ${esc(b.unitName)}</h4><div class="muted" style="margin-bottom:6px">عدد البنود: ${b.rows.length} · المخالفة: ${b.violated}</div><div class="card"><table>${th(['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند'])}${b.shown.length?b.shown.map(m=>`<tr class="${m.isViolation?'vio':''}"><td>${esc(m.itemWithCount)}</td><td>${esc(m.state)}</td><td>${esc(m.problem)}</td><td>${esc(m.faultDate)}</td><td>${esc(m.ticket)}</td><td>${esc(m.escalation)}</td><td>${esc(m.status)}</td></tr>`).join(''):'<tr><td colspan="7" class="muted">مفيش بنود مخالفة</td></tr>'}</table></div>`;
   });
@@ -793,6 +818,7 @@ function csvReport(){
     cs.price.forEach(r=>rows.push([r.group,r.label,r.valueText])); rows.push(['الإجمالي','',cs.priceTotal]);
     rows.push([],['أعداد مخالفات أدوات العرض ووسائل العرض'],['النوع','العدد','قيمة القطعة','الإجمالي']);
     cs.display.forEach(d=>rows.push([d.label,d.count,money(d.pieceValue),money(d.total)])); rows.push(['الإجمالي',cs.displayTotalCount,'',money(cs.displayTotalValue)]);
+    (cs.structure||[]).forEach(b=>{rows.push([],['حصر هيكل الفرع — '+b.unitName],['هيكل الفرع'].concat(b.groups.map(g=>g.name),['الإجمالي']),['العدد'].concat(b.groups.map(g=>g.planned),[b.totalPlanned]),['العدد الفعلي'].concat(b.groups.map(g=>g.actual),[b.totalActual]),['عجز الهيكل'],['الفرق'].concat(b.groups.map(g=>g.diff),[b.totalDiff]),['تصنيف العجز','عجز داخل الفترة المسموحة','عجز خارج الفترة المسموحة','الإجمالي'],['العدد',b.within,b.outside,b.classified])});
     cs.maintenance.forEach(bl=>{rows.push([],[bl.title+' — '+bl.unitName],['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند']); bl.shown.forEach(m=>rows.push([m.itemWithCount,m.state,m.problem,m.faultDate,m.ticket,m.escalation,m.status]))});
     rows.push([],['ملاحظات الزيارة العامة'],[(b.d.inspection||{}).notes||'لا توجد ملاحظات عامة مسجلة.'])}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);

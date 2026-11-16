@@ -138,8 +138,12 @@ const C = {branches:[],units:[],groups:[],cats:[],controls:[]};
 const OLD_I13_HINT='الصيانة درجتان، والدهان درجتان؛ يمكن تحديد كل جزء بشكل مستقل', NEW_I13_HINT='اختيار الصيانة أو الدهان (أو الاتنين) يخصم الوزن كامل (4 درجات)';
 // كل "قسم" يبدأ اسمه بكلمة قسم وكل إدارة مساعدة بكلمة إدارة (إدارة الكاميرات، إدارة الأمن...) — نفس منطق التطبيق (CatalogFixups)
 function fixCatalogNames(){
+  // الأقسام: "قسم ..." • مدير المعرض: من غير قسم • الصيانة والتكييفات: "قسم ..." • باقي الإدارات المساعدة: "إدارة ..."
+  const MAINT_UNITS=['maintenance','ac_maintenance','zayed_maintenance','zayed_air_conditioning'];
   C.units.forEach(u=>{ const n=String(u.name||'').trim();
-    if(u.kind==='SECTION'&&!n.startsWith('قسم')) u.name='قسم '+n;
+    if(MAINT_UNITS.includes(u.id)) u.name='قسم '+n.replace(/^(قسم|إدارة|ادارة)\s+/,'');
+    else if(String(u.id).includes('branch_manager')) u.name=n.replace(/^قسم\s+/,'');
+    else if(u.kind==='SECTION'&&!n.startsWith('قسم')) u.name='قسم '+n;
     else if(u.kind==='ADMINISTRATION'&&!/^(إدارة|ادارة|الإدارة|الادارة)/.test(n)) u.name='إدارة '+n });
   C.controls.forEach(k=>{ if(k.id==='maintenance_i13'&&k.hint===OLD_I13_HINT) k.hint=NEW_I13_HINT });
 }
@@ -261,8 +265,8 @@ function unitGroup(u){ const id=String(u.id||''); if(id==='branch_manager'||id==
 const money=v=>(Number(v)||0).toFixed(2);
 // ترتيب الوحدات زي التطبيق: أقسام التشغيل الأول (بالترتيب المعتمد) وبعدها الإدارات المساعدة
 const _nrmAr=s=>String(s||'').replace(/[إأآ]/g,'ا').replace(/ /g,'');
-const OPS_ORDER=['قسم الأدوات المنزلية','قسم الألعاب ومستلزمات الأطفال','قسم المفروشات','قسم الكهرباء','قسم الخدمات وعمال التحميل','قسم مدير المعرض'];
-const SUP_ORDER=['إدارة خدمة العملاء','إدارة الكاشير','إدارة الكاميرات','إدارة الأمن','إدارة الاستلامات','إدارة الصيانة','إدارة التكييفات','إدارة الموارد البشرية'];
+const OPS_ORDER=['قسم الأدوات المنزلية','قسم الألعاب ومستلزمات الأطفال','قسم المفروشات','قسم الكهرباء','قسم الخدمات وعمال التحميل','مدير المعرض'];
+const SUP_ORDER=['إدارة خدمة العملاء','إدارة الكاشير','إدارة الكاميرات','إدارة الأمن','إدارة الاستلامات','قسم الصيانة','قسم التكييفات','إدارة الموارد البشرية'];
 function unitOrderIdx(name,kind){ const n=_nrmAr(name); const list=kind==='SECTION'?OPS_ORDER:SUP_ORDER; const i=list.findIndex(t=>{const x=_nrmAr(t); return n.includes(x)||x.includes(n)}); return i<0?1e9:i }
 const unitSort=(a,b)=>((a.kind==='SECTION'?0:1)-(b.kind==='SECTION'?0:1))||(unitOrderIdx(a.name,a.kind)-unitOrderIdx(b.name,b.kind))||((a.sortOrder||0)-(b.sortOrder||0))||String(a.name||'').localeCompare(String(b.name||''),'ar');
 
@@ -320,7 +324,7 @@ function buildCensusSummary(d,na,unitIds,units){
     if(!rows.length) return null;
     const u=units.find(x=>x.id===f.unitId);
     const isAc=String(f.unitId).includes('air')||String(f.unitId).startsWith('ac')||String(u?u.name:'').includes('تكييف');
-    const name=u?u.name:('إدارة '+(isAc?'التكييفات':'الصيانة')+(String(f.unitId).startsWith('zayed')?' — زايد':''));   // وحدة مش ظاهرة لمشاهد التشغيل
+    const name=u?u.name:('قسم '+(isAc?'التكييفات':'الصيانة')+(String(f.unitId).startsWith('zayed')?' — زايد':''));   // وحدة مش ظاهرة لمشاهد التشغيل
     return {unitId:f.unitId,unitName:name,isAc,title:isAc?'حصر صيانة التكييفات':'حصر الصيانة',rows,violated:rows.filter(r=>r.isViolation).length,shown:rows.filter(r=>r.isViolation||r.hasDetails)};
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
   const order0={}; units.forEach((u,i)=>order0[u.id]=i);
@@ -337,11 +341,13 @@ function buildCensusSummary(d,na,unitIds,units){
       const within=Math.max(0,parseInt(g.within)||0), outside=Math.max(0,parseInt(g.outside)||0);   // تصنيف عجز كل مجموعة لوحدها
       return {key,name,planned,actual,diff:actual-planned,within,outside} });
     const within=groups.reduce((a,g)=>a+g.within,0), outside=groups.reduce((a,g)=>a+g.outside,0);
-    const summaryLines=[]; groups.forEach(g=>{ if(g.within>0) summaryLines.push(`عجز ${g.within} ${g.name} داخل الفترة`); if(g.outside>0) summaryLines.push(`عجز ${g.outside} ${g.name} خارج الفترة`) });
+    // العجز خارج الفترة بس — هو سبب المخالفة. الحالة من بند عجز الهيكل نفسه (hr_i11 / zayed_hr_i11): مخالف لو عدّاده > 0
+    const summaryLines=groups.filter(g=>g.outside>0).map(g=>`عجز ${g.outside} ${g.name} خارج الفترة`);
+    const violation=(d.findings||[]).some(x=>x.unitId===f.unitId&&x.controlId===f.unitId+'_i11'&&(Number(x.violationCount)||0)>0);
     const totalPlanned=groups.reduce((a,g)=>a+g.planned,0), totalActual=groups.reduce((a,g)=>a+g.actual,0);
-    if(!totalPlanned&&!totalActual&&!within&&!outside) return null;
+    if(!totalPlanned&&!totalActual&&!within&&!outside&&!violation) return null;
     const u=units.find(x=>x.id===f.unitId);
-    return {unitId:f.unitId,unitName:u?u.name:(STRUCT_NAMES[f.unitId]||f.unitId),groups,within,outside,summaryLines,totalPlanned,totalActual,totalDiff:totalActual-totalPlanned,deficit:groups.reduce((a,g)=>a+Math.max(0,g.planned-g.actual),0),classified:within+outside};
+    return {unitId:f.unitId,unitName:u?u.name:(STRUCT_NAMES[f.unitId]||f.unitId),groups,within,outside,summaryLines,violation,statusText:violation?'مخالف':'غير مخالف',summaryTitle:violation?'سبب المخالفة — العجز خارج الفترة':'العجز خارج الفترة',totalPlanned,totalActual,totalDiff:totalActual-totalPlanned,deficit:groups.reduce((a,g)=>a+Math.max(0,g.planned-g.actual),0),classified:within+outside};
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
   return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance,structure,priceByType,priceGrandTotal,codesValue:codeValue,showPrice:hasOps,hasAnything:hasOps||structure.length>0||maintenance.length>0};
 }
@@ -686,7 +692,7 @@ function censusSummaryHtml(cs){
       <div class="card"><table>${th(['تصنيف العجز'].concat(b.groups.map(g=>esc(g.name)),['الإجمالي']))}
         <tr><td class="grp">عجز داخل الفترة</td>${b.groups.map(g=>`<td>${g.within||''}</td>`).join('')}<td><b>${b.within}</b></td></tr>
         <tr><td class="grp">عجز خارج الفترة</td>${b.groups.map(g=>`<td>${g.outside||''}</td>`).join('')}<td><b>${b.outside}</b></td></tr></table></div>
-      <div class="card notesblk"><h3>ملخص العجز</h3>${b.summaryLines.length?b.summaryLines.map(x=>`<div class="ln">• ${esc(x)}</div>`).join(''):'<div class="ln muted">لا يوجد عجز مُصنّف</div>'}</div>`;
+      <div class="card notesblk"><div class="ln"><b>الحالة: <span style="color:${b.violation?'#c8102e':'inherit'}">${b.statusText}</span></b></div><h3 style="margin-top:8px">${esc(b.summaryTitle)}</h3>${b.summaryLines.length?b.summaryLines.map(x=>`<div class="ln">• ${esc(x)}</div>`).join(''):'<div class="ln muted">لا يوجد عجز خارج الفترة</div>'}</div>`;
   });
   cs.maintenance.forEach(b=>{
     h+=`<h4>${esc(b.title)} — ${esc(b.unitName)}</h4><div class="muted" style="margin-bottom:6px">عدد البنود: ${b.rows.length} · المخالفة: ${b.violated}</div><div class="card"><table>${th(['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند'])}${b.shown.length?b.shown.map(m=>`<tr class="${m.isViolation?'vio':''}"><td>${esc(m.itemWithCount)}</td><td>${esc(m.state)}</td><td>${esc(m.problem)}</td><td>${esc(m.faultDate)}</td><td>${esc(m.ticket)}</td><td>${esc(m.escalation)}</td><td>${esc(m.status)}</td></tr>`).join(''):'<tr><td colspan="7" class="muted">مفيش بنود مخالفة</td></tr>'}</table></div>`;
@@ -841,7 +847,7 @@ function csvReport(){
     if(cs.codesValue>0) rows.push(['','قيمة الأكواد (ج.م)','',money(cs.codesValue)]);
     rows.push([],['أعداد مخالفات أدوات العرض ووسائل العرض'],['النوع','العدد','قيمة القطعة','الإجمالي']);
     cs.display.forEach(d=>rows.push([d.label,d.count,money(d.pieceValue),money(d.total)])); rows.push(['الإجمالي',cs.displayTotalCount,'',money(cs.displayTotalValue)]); }
-    (cs.structure||[]).forEach(b=>{rows.push([],['حصر هيكل الفرع — '+b.unitName],['هيكل الفرع'].concat(b.groups.map(g=>g.name),['الإجمالي']),['العدد'].concat(b.groups.map(g=>g.planned),[b.totalPlanned]),['العدد الفعلي'].concat(b.groups.map(g=>g.actual),[b.totalActual]),['عجز الهيكل'],['الفرق'].concat(b.groups.map(g=>g.diff),[b.totalDiff]),['عجز داخل الفترة'].concat(b.groups.map(g=>g.within),[b.within]),['عجز خارج الفترة'].concat(b.groups.map(g=>g.outside),[b.outside]),['ملخص العجز'].concat(b.summaryLines.length?b.summaryLines:['لا يوجد عجز مُصنّف']))});
+    (cs.structure||[]).forEach(b=>{rows.push([],['حصر هيكل الفرع — '+b.unitName],['هيكل الفرع'].concat(b.groups.map(g=>g.name),['الإجمالي']),['العدد'].concat(b.groups.map(g=>g.planned),[b.totalPlanned]),['العدد الفعلي'].concat(b.groups.map(g=>g.actual),[b.totalActual]),['عجز الهيكل'],['الفرق'].concat(b.groups.map(g=>g.diff),[b.totalDiff]),['عجز داخل الفترة'].concat(b.groups.map(g=>g.within),[b.within]),['عجز خارج الفترة'].concat(b.groups.map(g=>g.outside),[b.outside]),['الحالة',b.statusText],[b.summaryTitle].concat(b.summaryLines.length?b.summaryLines:['لا يوجد عجز خارج الفترة']))});
     cs.maintenance.forEach(bl=>{rows.push([],[bl.title+' — '+bl.unitName],['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند']); bl.shown.forEach(m=>rows.push([m.itemWithCount,m.state,m.problem,m.faultDate,m.ticket,m.escalation,m.status]))});
     rows.push([],['ملاحظات الزيارة العامة'],[(b.d.inspection||{}).notes||'لا توجد ملاحظات عامة مسجلة.'])}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);

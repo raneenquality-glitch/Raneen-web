@@ -499,7 +499,7 @@ function reportView(){
   ${audit?`<h3>سجل المراجعة</h3><div class="card">${audit}</div>`:''}
   <div class="noprint" id="acts">
     ${canArea&&!editing?`<button data-act="approve" data-a="REVIEWED">اعتماد المراجعة</button> <button class="alt" data-act="retForm">إعادة للمراقب</button>`:''}
-    ${canDept&&!editing?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button> <button class="alt" data-act="retAreaForm">إعادة لمدير المنطقة</button><p class="muted">الاعتماد النهائي بيتم الأول، وبعدها بيتنزّل ZIP بالصور على جهازك. الصور بتفضل متاحة للمشاهدين 30 يوم وبعدها بتتأرشف على السيرفر (بتتمسح بعد فترة الاحتفاظ).</p>`:''}
+    ${canDept&&!editing?`<button data-act="finalApprove">الاعتماد النهائي</button> <button class="alt" data-act="retForm">إعادة للمراقب</button> <button class="alt" data-act="retAreaForm">إعادة لمدير المنطقة</button><p class="muted">الاعتماد النهائي بينزّل ZIP بالصور على جهازك. الصور بتفضل متاحة للمشاهدين 30 يوم وبعدها بتتأرشف على السيرفر (بتتمسح بعد فترة الاحتفاظ).</p>`:''}
     <p><button class="alt" data-act="print">طباعة / حفظ PDF</button> <button class="alt" data-act="csv">تنزيل Excel (CSV)</button> <button class="alt" data-act="zip">تنزيل الصور (ZIP)</button></p>
     <div class="err" id="rerr"></div></div>`;
 }
@@ -519,50 +519,12 @@ async function getMedia(r,p){
   }
   MEDIA.set(p.id,blob); return blob;
 }
-// ── عرض الصور: رابط مؤقت مباشرة في <img> (المتصفح بيحمّل ويخزّن لوحده) + تحميل كسول للي قرّب من الشاشة بس ──
-const URLS=new Map();   // photoId -> {url,t}  (الرابط المؤقت بيتخزّن 4 دقايق)
-let _act=0; const _q=[];
-function limit(fn){return new Promise((res,rej)=>{_q.push(()=>fn().then(res,rej)); pump()})}
-function pump(){while(_act<8&&_q.length){_act++; const f=_q.shift(); f().finally(()=>{_act--; pump()})}}
-async function getMediaUrl(r,p){
-  const c=URLS.get(p.id); if(c&&Date.now()-c.t<240000) return c.url;
-  const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
-  const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
-  if(!j||!j.url) throw {msg:'مفيش رابط'};
-  URLS.set(p.id,{url:j.url,t:Date.now()}); return j.url;
-}
-let _mediaWhy=false;
-async function showMedia(r,n){
-  if(n.dataset.done) return; n.dataset.done='1';
-  const p={id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null};
-  const viaBlob=async()=>{   // الطريقة القديمة: تقارير قديمة على Supabase أو الرابط المباشر فشل
-    try{const blob=await getMedia(r,p); const u=URL.createObjectURL(blob);
-      n.innerHTML=p.ext==='mp4'?`<video src="${u}" controls preload="metadata"></video>`:`<img src="${u}" data-act="zoom" data-url="${u}">`}
-    catch(e){ n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة';
-      if(!_mediaWhy){_mediaWhy=true; toast('تعذّر تحميل بعض الملفات: '+String((e&&e.msg)||'').replace(/^media: /,''),true)} }
-  };
-  if(MEDIA.has(p.id)||p.ext==='mp4') return viaBlob();
-  try{
-    const url=await getMediaUrl(r,p);
-    const img=new Image(); img.decoding='async'; img.dataset.act='zoom'; img.dataset.url=url;
-    img.onload=()=>{n.innerHTML=''; n.appendChild(img)};
-    img.onerror=()=>viaBlob();
-    img.src=url;
-  }catch(e){ if(e&&e.code===410){n.textContent='مؤرشفة (الأدمن يسترجعها)'; return} await viaBlob() }
-}
-let _io=null;
-function hydrateMedia(r){
-  if(_io) _io.disconnect();
-  const nodes=[...document.querySelectorAll('[data-media]')];
-  _io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){_io.unobserve(e.target); limit(()=>showMedia(r,e.target))}})},{rootMargin:'900px 0px'});
-  nodes.forEach(n=>_io.observe(n));
-}
-// قبل الطباعة/PDF: لازم كل الصور تتحمّل (التحميل الكسول بيحمّل اللي قرّب بس)
-async function loadAllMedia(){
-  const r=curReport(); if(!r) return;
-  const nodes=[...document.querySelectorAll('[data-media]')].filter(n=>!n.dataset.done);
-  await Promise.all(nodes.map(n=>limit(()=>showMedia(r,n))));
-  await Promise.all([...document.images].filter(i=>!i.complete).map(i=>new Promise(res=>{i.onload=i.onerror=res})));
+async function hydrateMedia(r){
+  const nodes=[...document.querySelectorAll('[data-media]')]; let i=0,failed=0,why='';
+  const worker=async()=>{while(i<nodes.length){const n=nodes[i++];try{const blob=await getMedia(r,{id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null});const url=URL.createObjectURL(blob);
+    n.innerHTML=n.dataset.ext==='mp4'?`<video src="${url}" controls preload="metadata"></video>`:`<img src="${url}" data-act="zoom" data-url="${url}">`}catch(e){failed++; if(!why) why=String((e&&e.msg)||'').replace(/^media: /,''); n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة'}}};
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  if(failed&&why) toast('تعذّر تحميل '+failed+' ملف: '+why,true);
 }
 async function review(action,note,only){
   const rm=curReport(); const parts=rm._parts||[rm];
@@ -587,39 +549,27 @@ function mediaName(b,v,k,p,used){
   const base=`${cl(v.unit&&v.unit.name)}/${v.control.sortOrder}`+(v.group?'_'+cl(v.group.name):'')+`_${k+1}`;
   const ext=p.ext||'jpg'; let name=`${base}.${ext}`,n=2; while(used.has(name)){name=`${base}_${n}.${ext}`;n++} used.add(name); return name;
 }
-async function collectZip(b,onProgress){
-  // الأسماء بتتحدد الأول بالترتيب، وبعدين الصور بتتنزّل بالتوازي (قبل كده واحدة ورا واحدة)
-  const jobs=[],used=new Set();
-  for(const v of b.viol){let k=0;for(const p of v.photos) jobs.push({p,name:mediaName(b,v,k++,p,used)})}
-  const files=[]; let n=0,failed=0;
-  await Promise.all(jobs.map(j=>limit(async()=>{
-    try{const blob=await getMedia(b.r,j.p); files.push({name:j.name,data:new Uint8Array(await blob.arrayBuffer())})}
-    catch(e){failed++}
-    n++; if(onProgress) onProgress(n,jobs.length);
-  })));
-  files.failed=failed; return files;
+async function collectZip(b){
+  const files=[],used=new Set();
+  for(const v of b.viol){let k=0;for(const p of v.photos){let blob;try{blob=await getMedia(b.r,p)}catch(e){if(e.code===404||e.code===400)continue;throw e}
+    files.push({name:mediaName(b,v,k++,p,used),data:new Uint8Array(await blob.arrayBuffer())})}}
+  return files;
 }
 function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000)}
 async function doZip(){
   const b=view.b; toast('جاري تجهيز الملف...');
-  try{const f=await collectZip(b,(n,t)=>toast(`تجهيز الصور ${n}/${t}...`)); if(!f.length){toast('مفيش صور متاحة',true);return}
-    download(makeZip(f),`Raneen_${b.r.report_number}_photos.zip`); if(f.failed) toast(`${f.failed} صورة ما نزلتش (غير متاحة)`,true)}
-  catch(e){toast(errTxt(e),true)}
+  try{const f=await collectZip(b); if(!f.length){toast('مفيش صور متاحة',true);return} download(makeZip(f),`Raneen_${b.r.report_number}_photos.zip`)}catch(e){toast(errTxt(e),true)}
 }
 async function doFinal(){
-  const b=view.b,r=b.r; const btn=document.querySelector('[data-act=finalApprove]');
-  if(btn){btn.disabled=true; btn.textContent='جاري الاعتماد...'}
-  // الاعتماد الأول: الصور بتفضل على السحابة 30 يوم، فمفيش داعي نستنى تنزيلها قبل الاعتماد (كان ده سبب التعليق)
-  try{ await review('FINAL_APPROVED') }
-  catch(e){ el('rerr').textContent=errTxt(e); if(btn){btn.disabled=false; btn.textContent='الاعتماد النهائي'} return }
-  toast('اتعتمد التقرير ✔ — جاري تجهيز الصور للأرشيف...');
+  const b=view.b,r=b.r; const btn=document.querySelector('[data-act=finalApprove]'); if(btn)btn.disabled=true;
   try{
-    const files=await collectZip(b,(n,t)=>toast(`تجهيز الصور ${n}/${t}...`));
+    toast('جاري تنزيل الصور أولًا...');
+    const files=await collectZip(b);                         // لازم كل الصور تتنزّل قبل الاعتماد
     if(files.length) download(makeZip(files),`Raneen_${r.report_number}_photos.zip`);
-    if(files.failed) toast(`اتعتمد التقرير. ${files.failed} صورة ما نزلتش — حمّلها بزر ZIP قبل ما تنتهي مدة الاحتفاظ`,true);
-    else toast('اتعتمد التقرير. احفظ ملف ZIP + اطبع PDF للأرشيف.');
-  }catch(e){ toast('اتعتمد التقرير، لكن تجهيز الصور فشل ('+errTxt(e)+') — استخدم زر تنزيل الصور (ZIP)',true) }
-  render();
+    await review('FINAL_APPROVED');
+    // الملفات بتفضل على السحابة: المسح والأرشفة (بعد 30 يوم) على السيرفر بعد التأكد من النقل، مش من هنا
+    toast('اتعتمد التقرير. احفظ ملف ZIP + اطبع PDF للأرشيف.'); render();
+  }catch(e){ el('rerr').textContent=errTxt(e); if(btn)btn.disabled=false }
 }
 function csvReport(){
   const b=view.b,q=s=>{let v=String(s==null?'':s);if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'},rows=[];
@@ -973,7 +923,7 @@ const ACT={
   eSave:()=>eSave(),
   retAreaForm:()=>modal(`<h3>سبب الإعادة لمدير المنطقة</h3><textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturnArea">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   retForm:()=>modal(`<h3>سبب الإعادة</h3>${retPartSel()}<textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
-  doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:async()=>{toast("جاري تجهيز الصور للطباعة...");await loadAllMedia();window.print()}, csv:()=>csvReport(), zip:()=>doZip(),
+  doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:()=>window.print(), csv:()=>csvReport(), zip:()=>doZip(),
   playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,view.b.viol.flatMap(v=>v.photos).find(p=>p.id===d.vid)||{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),

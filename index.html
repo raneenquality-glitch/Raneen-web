@@ -484,12 +484,36 @@ function reportView(){
   const wait=!!(r._waiting&&r._waiting.length); const canArea=ME.role==='AREA_MANAGER'&&r.status==='SUBMITTED'&&!wait, canDept=ME.role==='DEPT_MANAGER'&&r.status==='REVIEWED'&&!wait;
   const final=r.status==='FINAL_APPROVED'; const viewer=ME.role==='VIEWER';
   const editBar=!final&&canEditReport(r)?(editing?`<div class="card noprint" style="background:#fff3e0"><b>تعديل التقييم</b><div class="row wrap" style="margin-top:8px;gap:8px"><button data-act="eSave">حفظ التعديلات</button><button class="alt" data-act="eCancel">إلغاء</button></div>${addPanel(b)}<div class="err" id="eerr"></div></div>`:`<div class="noprint" style="margin:8px 0"><button data-act="eStart">تعديل التقرير (الأقسام والضوابط)</button></div>`):'';
-  const vcards=(()=>{let last='',h='';b.viol.forEach(v=>{
-    if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
-    h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div><div class="muted">${esc(v.category?v.category.name:'')}</div>
+  const thumbsHtml=v=>`${v.photos.length?(false?'':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}`;
+  const oneCard=v=>`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}${v.group?` (${esc(v.group.name)})`:''}</b>${editing?`<span class="tag badc">−${v.deduction}</span>`:`<span class="tag badc">✕ مخالف · −${v.deduction}</span>`}</div><div class="muted">${esc(v.category?v.category.name:'')}</div>
     <div class="muted">الخصم المحتسب: ${v.deduction} ${v.deduction===1?'درجة':'درجات'}${(v.control.id==='maintenance_i3'||v.control.id.startsWith('services_admin_i'))&&v.subparts.length?` · الأجزاء المحددة: ${v.subparts.join(' + ')} = ${v.deduction}`:''}</div>
     ${editing?editBox(v):(v.finding.violationNote?`<div class="note"><b>ملاحظات المخالفة:</b> ${esc(v.finding.violationNote)}</div>`:'')}
-    ${v.photos.length?(false?'':`<div class="thumbs">${v.photos.map(p=>(p.ext==='mp4')?`<div class="thumb click" data-act="playVid" data-vid="${esc(p.id)}">▶ فيديو</div>`:`<div class="thumb" data-media="${esc(p.id)}" data-own="${esc(p._own?p._own.id:'')}" data-ext="${esc(p.ext||'jpg')}">...</div>`).join('')}</div>`):(v.control.photoRequired?'<div class="err">⚠ بدون صورة</div>':'')}</div>`});return h})();
+    ${thumbsHtml(v)}</div>`;
+  // تجميع مجموعات المنتجات تحت البند: كارت واحد للبند وتحته صف لكل مجموعة (بدل تكرار البند مع كل مجموعة)
+  const vcards=(()=>{
+    let last='',h=''; const order=[],map=new Map();
+    b.viol.forEach(v=>{
+      if(editing||!v.group){order.push([v]);return}
+      const k=(v.unit?v.unit.id:'')+'|'+v.control.id;
+      if(!map.has(k)){const arr=[];map.set(k,arr);order.push(arr)}
+      map.get(k).push(v);
+    });
+    order.forEach(items=>{
+      const v=items[0];
+      if(v.unit&&v.unit.id!==last){last=v.unit.id;h+=`<div class="unitbar">${esc(v.unit.name)}</div>`}
+      if(editing||!v.group){h+=oneCard(v);return}
+      const sum=items.reduce((t,x)=>t+(+x.deduction||0),0);
+      const tot=Math.min(sum,(v.control.maxScore>0)?v.control.maxScore:sum);
+      // شكل التطبيق: كارت واحد للبند، سطر الوزن | الخصم | المتبقي، ملاحظات كل المجموعات متجمّعة، وكل الصور مع بعض
+      const W=(v.control.maxScore>0)?v.control.maxScore:0;
+      const notes=items.filter(x=>x.finding.violationNote).map(x=>`${esc(x.group.name)}: ${esc(x.finding.violationNote)}`).join(' — ');
+      const allPhotos=items.reduce((arr,x)=>arr.concat(x.photos||[]),[]);
+      h+=`<div class="card viol"><div class="row"><b class="grow">${v.control.sortOrder}. ${esc(v.control.text)}</b><span class="tag badc">✕ مخالف · −${tot}</span></div><div class="muted">${esc(v.category?v.category.name:'')}</div>`
+        +`<div class="muted">${W?`الوزن: ${W} | الخصم: ${tot} | المتبقي: ${Math.max(0,W-tot)} · `:''}الخصم المحتسب: ${tot} ${tot===1?'درجة':'درجات'}</div>`
+        +(notes?`<div class="note"><b>ملاحظات المخالفة:</b> ${notes}</div>`:'')
+        +thumbsHtml({photos:allPhotos,control:v.control})+`</div>`;
+    });
+    return h})();
   let cen='';{let lu='';b.census.forEach(c=>{if(c.unitId!==lu){lu=c.unitId;cen+=`<div class="unitbar">${esc(c.unitName)}</div>`}const priceInfo=c.hasPrice?` · سعر الوحدة: ${c.unitPrice==null?'متعدد/غير موحد':money(c.unitPrice)} · الإجمالي: ${c.amount==null?'غير متاح':money(c.amount)}`:' · السعر غير موجود في البيانات المتزامنة';cen+=`<div class="card row"><div class="grow">${esc(c.controlText)}<div class="muted">${esc(c.categoryName)} · الكمية: ${c.total}${priceInfo}</div></div><b>${c.expr}</b></div>`})}
   const audit=(r.audit||[]).map(a=>`<div style="margin:6px 0"><b>${ACT_AR[a.action]||a.action}</b> — ${esc(a.actorName)} (${ROLE_AR[a.actorRole]||''})<div class="muted">${fmtD(a.at)}${a.note?' · '+esc(a.note):''}</div></div>`).join('');
   const retNote=r.status==='RETURNED'?(r.audit||[]).filter(a=>a.action==='RETURNED').slice(-1)[0]:null;

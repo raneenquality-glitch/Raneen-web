@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e10003">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
 <meta name="description" content="لوحة إدارة الرقابة والجودة بشركة رنين لمراجعة التقارير وإدارة الفروع والضوابط.">
 <title>رنين — إدارة الرقابة والجودة</title>
 <style>
@@ -108,6 +109,15 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
   .kpis{grid-template-columns:repeat(3,1fr)}.infogrid{grid-template-columns:1fr 1fr}
   .censum{break-before:page}.censum .card{break-inside:auto}.censum table.pricetbl{break-inside:avoid}
 }
+
+/* تحسينات شكل وأداء */
+header.top{position:sticky;top:0;z-index:20;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.card{transition:box-shadow .18s,border-color .18s,transform .18s}
+.click:hover{transform:translateY(-1px)}
+button:active:not(:disabled){transform:scale(.98)}
+table{font-variant-numeric:tabular-nums}
+img{max-width:100%;height:auto}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
@@ -297,13 +307,13 @@ const DISPLAY_TOOLS=[['display_ruler','مسطرة',26.0],['display_sadabat','ا�
 const MISSING_IDX={display_ruler:[1,2],display_acrylic:[3,4],display_half_a6_acrylic:[5,6],display_sadabat:[7,8],display_polystyrene:[9,10]};
 function buildCensusSummary(d,na,unitIds,units){
   const active=(d.findings||[]).filter(f=>!na.has(f.unitId)&&unitIds.has(f.unitId));
-  const counts={}, perUnit={}; let codeValue=0; const inc=(u,k,c)=>{ if(c>0){ counts[k]=(counts[k]||0)+c; const m=perUnit[u]=perUnit[u]||{}; m[k]=(m[k]||0)+c } };
+  const counts={}, perUnit={}; let codeValue=0; const codeByUnit={}; const inc=(u,k,c)=>{ if(c>0){ counts[k]=(counts[k]||0)+c; const m=perUnit[u]=perUnit[u]||{}; m[k]=(m[k]||0)+c } };
   active.filter(f=>f.controlId!==MAINT_CTL&&(Number(f.violationCount)||0)>0).forEach(f=>{
     const inl=inlineCensus(f.note);
-    Object.keys(inl).forEach(k=>{ inc(f.unitId,'in_'+k,inl[k].count); if(k==='no_code') codeValue+=inl[k].value });
+    Object.keys(inl).forEach(k=>{ inc(f.unitId,'in_'+k,inl[k].count); if(k==='no_code'){ codeValue+=inl[k].value; codeByUnit[f.unitId]=(codeByUnit[f.unitId]||0)+inl[k].value } });
     const m=/^cns_(pricing|missing)_(.+)_(\d+)$/.exec(f.controlId||''); if(!m) return;
     const n=parseInt(m[3]), c=Number(f.violationCount)||0; inc(f.unitId,m[1]+n,c);
-    if(m[1]==='pricing'&&n>=10&&n<=12){ const pr=(typeof f.note==='string'&&f.note.startsWith('PRICE:'))?parseFloat(f.note.slice(6)):0; codeValue+=c*(pr||0) }
+    if(m[1]==='pricing'&&n>=10&&n<=12){ const pr=(typeof f.note==='string'&&f.note.startsWith('PRICE:'))?parseFloat(f.note.slice(6)):0; codeValue+=c*(pr||0); codeByUnit[f.unitId]=(codeByUnit[f.unitId]||0)+c*(pr||0) }
   });
   const g=(...k)=>k.reduce((a,x)=>a+(counts[x]||0),0);
   const price=[
@@ -333,8 +343,8 @@ function buildCensusSummary(d,na,unitIds,units){
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
   const order0={}; units.forEach((u,i)=>order0[u.id]=i);
   const pSecs=PRICE_SECTIONS.concat(Object.keys(perUnit).filter(u=>!PRICE_SECTIONS.some(x=>x[0].includes(u))&&!PRICE_EXCLUDED.includes(u)).sort((a,b)=>(order0[a]??999)-(order0[b]??999)).map(u=>{ const x=units.find(y=>y.id===u); return [[u],x?x.name:u] }));
-  const priceByType=PRICE_TYPES.map(([type,keys])=>{ const sections=pSecs.map(([ids,label])=>({unitId:ids[0],label,count:keys.reduce((a,k)=>a+ids.reduce((b,u)=>b+((perUnit[u]&&perUnit[u][k])||0),0),0)})); return {type,sections,subtotal:sections.reduce((a,x)=>a+x.count,0)} });
-  const priceGrandTotal=priceByType.reduce((a,t)=>a+t.subtotal,0);
+  const priceByType=PRICE_TYPES.map(([type,keys])=>{ const sections=pSecs.map(([ids,label])=>({unitId:ids[0],label,count:keys.reduce((a,k)=>a+ids.reduce((b,u)=>b+((perUnit[u]&&perUnit[u][k])||0),0),0),value:keys.includes('in_no_code')?ids.reduce((a,u)=>a+(codeByUnit[u]||0),0):0})); return {type,sections,subtotal:sections.reduce((a,x)=>a+x.count,0),subtotalValue:sections.reduce((a,x)=>a+x.value,0)} });
+  const priceGrandTotal=priceByType.reduce((a,t)=>a+t.subtotal,0); const priceGrandValue=priceByType.reduce((a,t)=>a+t.subtotalValue,0);
   // الظهور حسب الجهة: الحصر بيتحسب من الوحدات الظاهرة للمستخدم (مشاهد الإدارة = وحداته، أدوار الإدارة = كل الوحدات)
   const showStructure=hasOps||units.some(u=>u.id==='hr'||u.id==='zayed_hr');     // التشغيل + الموارد البشرية
   const STRUCT_NAMES={hr:'إدارة الموارد البشرية',zayed_hr:'إدارة الموارد البشرية — زايد'};
@@ -353,7 +363,7 @@ function buildCensusSummary(d,na,unitIds,units){
     const u=units.find(x=>x.id===f.unitId);
     return {unitId:f.unitId,unitName:u?u.name:(STRUCT_NAMES[f.unitId]||f.unitId),groups,within,outside,summaryLines,violation,statusText:violation?'مخالف':'غير مخالف',summaryTitle:violation?'سبب المخالفة — العجز خارج الفترة':'العجز خارج الفترة',totalPlanned,totalActual,totalDiff:totalActual-totalPlanned,deficit:groups.reduce((a,g)=>a+Math.max(0,g.planned-g.actual),0),classified:within+outside};
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
-  return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance,structure,priceByType,priceGrandTotal,codesValue:codeValue,showPrice:hasOps,hasAnything:hasOps||structure.length>0||maintenance.length>0};
+  return {price,priceTotal,display,displayTotalCount:display.reduce((a,x)=>a+x.count,0),displayTotalValue:display.reduce((a,x)=>a+x.total,0),maintenance,structure,priceByType,priceGrandTotal,priceGrandValue,codesValue:codeValue,showPrice:hasOps,hasAnything:hasOps||structure.length>0||maintenance.length>0};
 }
 function buildReport(r, names){
   const d=r.data||{inspection:{},units:[],findings:[],photos:[]};
@@ -440,7 +450,7 @@ if (typeof module!=='undefined') module.exports.makeZip=makeZip;
 </script>
 <script>
 // الواجهة
-const CFG={url:"https://rdhmulfhwgdjtadpcsge.supabase.co",key:"sb_publishable_7zeqh0Qa5ppXCgqlohLVdA_JwtEEHoT",fn:"smart-processor",bucket:"report-photos",domain:"raneen.app"};
+const CFG={b2:true,url:"https://rdhmulfhwgdjtadpcsge.supabase.co",key:"sb_publishable_7zeqh0Qa5ppXCgqlohLVdA_JwtEEHoT",fn:"smart-processor",bucket:"report-photos",domain:"raneen.app"};
 const ROLE_AR={INSPECTOR:"مراقب جودة",AREA_MANAGER:"مدير منطقة",DEPT_MANAGER:"نائب مدير الإدارة",DEPT_DIRECTOR:"مدير الإدارة",ADMIN:"مدير النظام",VIEWER:"مشاهد إدارة"};
 const ST={SUBMITTED:"مُرسل — بانتظار مدير المنطقة",REVIEWED:"تمت المراجعة — بانتظار نائب مدير الإدارة",RETURNED:"أُعيد للمراقب",FINAL_APPROVED:"معتمد نهائيًا"};
 const ST_SHORT={SUBMITTED:"مُرسل",REVIEWED:"تمت المراجعة",RETURNED:"مُعاد",FINAL_APPROVED:"معتمد"};
@@ -457,7 +467,7 @@ const visitOf=r=>VISIT[String(((r.data||{}).inspection||{}).visitNumber||'')]||'
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('id'+Date.now()+Math.random().toString(16).slice(2));
 
 let S=JSON.parse(localStorage.getItem('rq_sess')||'null'), ME=null, REPORTS=[], PROFILES=[], NAMES={};
-let EDIT=null; let SEATS=[]; let view={tab:'reports'}, FILTER={pending:true,q:'',month:'all'}; const MEDIA=new Map();
+let EDIT=null; let SEATS=[]; let SEAT_OPEN=[]; let view={tab:'reports'}, FILTER={pending:true,q:'',month:'all'}; const MEDIA=new Map();
 
 function toast(m,err){const t=el('toast');t.textContent=m;t.style.background=err?'#b00020':'#222';t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',err?6000:3000)}
 function modal(html){const m=el('modal');m.innerHTML=`<div class="box">${html}</div>`;m.classList.remove('hidden')}
@@ -541,6 +551,8 @@ async function viewerReports(){   // مشاهد الإدارة: التقارير
   return out.map(r=>Object.assign({audit:[],visit_key:null,created_at:r.updated_at,_viewer:true},r)).sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at)));
 }
 // الكتالوج كله بصفحات: PostgREST بيقصّ الرد عند ~1000 صف، وحفظ كتالوج مقصوص كان بيمسح الباقي ويرجّع الإعدادات
+// كل التقارير على صفحات (كان بيجيب أحدث 300 بس، والأقدم كانت بتختفي)
+async function fetchReports(){ const all=[]; let off=0; for(;;){ const page=await api(`/rest/v1/reports?select=*&order=updated_at.desc,id.asc&limit=200&offset=${off}`); if(!Array.isArray(page)||!page.length) break; all.push(...page); if(page.length<200) break; off+=page.length } return all }
 async function fetchCatalog(){ const all=[]; let off=0; for(;;){ const page=await api(`/rest/v1/catalog_items?select=kind,id,data&order=kind,id&limit=1000&offset=${off}`); if(!Array.isArray(page)||!page.length) break; all.push(...page); off+=page.length } return all }
 const catSig=items=>{ try{ return JSON.stringify(items.map(i=>[i.kind,i.id,i.data])) }catch(e){ return '' } };
 let CAT_BASE='';   // بصمة الكتالوج وقت آخر تحميل/حفظ: بنقارن بيها قبل أي حفظ عشان ما نمسحش تعديل جهاز تاني
@@ -549,18 +561,19 @@ async function loadAll(){
   const [cat,prof,reps,seats]=await Promise.all([
     fetchCatalog(),
     api('/rest/v1/profiles?select=*'),
-    viewer?viewerReports():api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300'),
+    viewer?viewerReports():fetchReports(),
     viewer?Promise.resolve([]):api('/rest/v1/visit_seats?select=*').catch(()=>[])]);
   CAT_BASE=catSig(cat); setCatalog(cat); PROFILES=prof; NAMES=Object.fromEntries(prof.map(p=>[p.id,p.name])); REPORTS=reps; SEATS=Array.isArray(seats)?seats:[];
+  await computeOpenSeats();
 }
 
 // الإطار
 function render(){
   document.body.classList.remove('loginbg');
   const admin=ME.role==='ADMIN';
-  const tabs=[['reports','التقارير']].concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
+  const tabs=[['reports','التقارير']].concat(chatAllowed()?[['chat','الشات']]:[]).concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
   const on=view.tab==='unit'?'catalog':view.tab==='report'?'reports':view.tab;
-  el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الرقابة والجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''}</small>
+  el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الرقابة والجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''} · نسخة 26-11 ب</small>
     <button class="alt" data-act="refresh">تحديث</button><button class="alt" data-act="logout">خروج</button></header>
     <nav class="tabs">${tabs.map(t=>`<button class="${on===t[0]?'on':''}" data-act="tab" data-id="${t[0]}">${t[1]}${t[0]==='chat'?'<span id="cbadge" class="cbadge" style="display:none"></span>':''}</button>`).join('')}</nav>
     <main>${view.tab==='reports'?reportsView():view.tab==='chat'?chatView():view.tab==='report'?reportView():view.tab==='users'?usersView():view.tab==='branches'?branchesView():view.tab==='catalog'?catalogView():unitView()}</main>`;
@@ -570,6 +583,13 @@ function render(){
 }
 
 // زيارة بمراقبين اتنين: دمج الجزئين (تشغيل + إدارات مساعدة) في تقرير واحد
+// مقعد "مفتوح" = من غير تقرير، أو مربوط بتقرير مش موجود على السيرفر (مقعد معلّق). لو فحص التقارير فشل: بنرجع للتعريف القديم (من غير تقرير بس).
+async function computeOpenSeats(){
+  const linked=s=>(s.inspection_id&&String(s.inspection_id)!=='null')?s.inspection_id:null;
+  const ids=[...new Set(SEATS.map(linked).filter(Boolean))], ex=new Set(); let ok=true;
+  try{ for(let i=0;i<ids.length;i+=40){ const r=await api('/rest/v1/reports?select=id&id=in.('+ids.slice(i,i+40).join(',')+')'); (Array.isArray(r)?r:[]).forEach(x=>ex.add(x.id)) } }catch(e){ ok=false }
+  SEAT_OPEN=SEATS.filter(s=>{ const id=linked(s); return !id||(ok&&!ex.has(id)) });
+}
 const SEAT_KIND={OPERATIONAL:'SECTION',SUPPORT:'ADMINISTRATION'};
 const SEAT_AR={OPERATIONAL:'الأقسام التشغيلية',SUPPORT:'الإدارات المساعدة'};
 const STATUS_RANK={DRAFT:0,RETURNED:1,SUBMITTED:2,UNDER_REVIEW:3,REVIEWED:4,FINAL_APPROVED:5};
@@ -579,7 +599,7 @@ function isPrimary(r){ const p=partnerOf(r); return !p||String(r.id)<String(p.id
 function kindOfUnit(id){ const u=byId(C.units,id); return u?u.kind:null }
 function compose(r){
   const rows=visitSeatRows(r), p=partnerOf(r);
-  const waitingOf=parts=>rows.filter(s=>!s.inspection_id&&!parts.some(x=>x.inspector_id===s.inspector_id)).map(s=>({seat:s.seat,name:NAMES[s.inspector_id]||''}));
+  const waitingOf=parts=>rows.filter(s=>SEAT_OPEN.some(o=>o.id===s.id)&&!parts.some(x=>x.inspector_id===s.inspector_id)).map(s=>({seat:s.seat,name:NAMES[s.inspector_id]||''}));
   if(!p){ const w=waitingOf([r]); return w.length?Object.assign({},r,{_waiting:w}):r }
   const parts=[r,p].sort((a,b)=>String(a.id)<String(b.id)?-1:1);
   const kinds=parts.map(x=>{const mine=rows.filter(s=>s.inspector_id===x.inspector_id); return mine.length?new Set(mine.map(s=>SEAT_KIND[s.seat])):null});
@@ -602,20 +622,21 @@ function curReport(){ const r=REPORTS.find(x=>x.id===view.id); return r?compose(
 function retPartSel(){ const rm=curReport(); const ps=rm&&rm._parts; if(!ps) return '';
   return `<select id="rpart" style="width:100%;margin-bottom:8px"><option value="${ps.map(p=>p.id).join(',')}">كل الأجزاء</option>${ps.map((p,i)=>`<option value="${esc(p.id)}">${esc(rm._labels[i])} — ${esc(NAMES[p.inspector_id]||'')}</option>`).join('')}</select>`}
 
-// المقاعد المحجوزة اللي لسه ماترفعش: الأدمن / مدير المنطقة / مدير الإدارة يقدروا يلغوها
+// المقاعد المحجوزة اللي لسه ماترفعش (أو معلّقة): مدير المنطقة ونائب مدير الإدارة بس يقدروا يلغوها (مش الأدمن)
 function seatsPanel(){
-  if(!['ADMIN','AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
-  const open=SEATS.filter(s=>!s.inspection_id); if(!open.length) return '';
-  return `<div class="card noprint"><b>🪑 مقاعد محجوزة لسه ماترفعش (${open.length})</b><div class="muted">لو المراقب فتح الزيارة وماشتغلش عليها، ألغي المقعد عشان مراقب تاني ياخده.</div>`+
+  if(!['AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
+  const open=SEAT_OPEN; if(!open.length) return '';
+  return `<div class="card noprint"><b>🪑 مقاعد محجوزة لسه ماترفعش (${open.length})</b><div class="muted">لو المراقب فتح الزيارة وماشتغلش عليها (أو مسح التقرير)، ألغي المقعد عشان مراقب تاني ياخده.</div>`+
     open.map(s=>`<div class="row" style="margin-top:8px"><div class="grow">${esc((byId(C.branches,s.branch_id)||{}).name||s.branch_id)} · ${esc(templateLabel(s.template_id))} · الزيارة ${s.visit_number==='1'?'الأولى':'الثانية'} · ${esc(s.visit_month)}<div class="muted">${SEAT_AR[s.seat]||s.seat} — ${esc(NAMES[s.inspector_id]||'مراقب')} · من ${fmtD(Date.parse(s.created_at))}</div></div><button class="alt" data-act="seatCancel" data-id="${esc(s.id)}">إلغاء المقعد</button></div>`).join('')+
     `<div class="err" id="serr"></div></div>`;
 }
 async function seatCancel(id){
+  if(!['AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return;
   const s=SEATS.find(x=>x.id===id); if(!s) return;
   if(!confirm('إلغاء مقعد '+(SEAT_AR[s.seat]||s.seat)+' لـ '+(NAMES[s.inspector_id]||'المراقب')+'؟ المراقب مش هيقدر يرفع التقرير ده بعد كده.')) return;
   try{
     await api('/rest/v1/rpc/release_visit_seat',{method:'POST',body:{p_branch_id:s.branch_id,p_template_id:s.template_id,p_visit_number:s.visit_number,p_seat:s.seat,p_month:s.visit_month}});
-    SEATS=await api('/rest/v1/visit_seats?select=*').catch(()=>[]); toast('اتلغى المقعد'); render();
+    SEATS=await api('/rest/v1/visit_seats?select=*').catch(()=>[]); await computeOpenSeats(); toast('اتلغى المقعد'); render();
   }catch(e){ const x=el('serr'); const m=(e&&e.msg)||''; if(x) x.textContent=/already submitted/i.test(m)?'الجزء ده اتبعت خلاص، مينفعش يتلغي.':errTxt(e) }
 }
 
@@ -672,7 +693,7 @@ async function eSave(){
       const keep=rm._parts?((p.data&&p.data.findings)||[]).filter(f=>own(f.unitId)!==p):[];
       await api('/rest/v1/rpc/manager_edit_report',{method:'POST',body:{p_id:p.id,p_data:{units:(p.data&&p.data.units)||[],findings:now.concat(keep)}}});
     }
-    REPORTS=await api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300');
+    REPORTS=await fetchReports();
     EDIT=null; toast('تم حفظ التعديلات'); render();
   }catch(e){ if(btn)btn.disabled=false; const x=el('eerr'); if(x) x.textContent=errTxt(e) }
 }
@@ -681,10 +702,10 @@ function censusSummaryHtml(cs){
   if(!cs.hasAnything) return '';   // مفيش حصر يخص جهة المستخدم: الصفحة كلها بتتشال
   const th=a=>`<tr>${a.map(x=>`<th>${x}</th>`).join('')}</tr>`;
   let lg='';
-  let priceN=0; const priceRowsHtml=cs.priceByType.map(t=>t.sections.map((x,i)=>{ priceN++; return `<tr class="${x.count>0?'phit':''}"><td class="pn">${priceN}</td>${i===0?`<td class="grp ptype" rowspan="${t.sections.length}">${esc(t.type)}<div class="psub">الإجمالي: ${t.subtotal}</div></td>`:''}<td>${esc(x.label)}</td><td class="${x.count>0?'pc':'pz'}">${x.count>0?x.count:'—'}</td></tr>` }).join('')).join('');
+  let priceN=0; const priceRowsHtml=cs.priceByType.map(t=>t.sections.map((x,i)=>{ priceN++; return `<tr class="${x.count>0?'phit':''}"><td class="pn">${priceN}</td>${i===0?`<td class="grp ptype" rowspan="${t.sections.length}">${esc(t.type)}<div class="psub">الإجمالي: ${t.subtotal}</div></td>`:''}<td>${esc(x.label)}</td><td class="${x.count>0?'pc':'pz'}">${x.count>0?x.count:'—'}</td><td class="${x.value>0?'pc':'pz'}">${x.value>0?money(x.value):'—'}</td></tr>` }).join('')).join('');
   let h=`<div class="censum"><h2>الحصر المجمّع</h2>`;
   // مخالفات الأسعار وأدوات العرض: لإدارة التشغيل (وأدوار الإدارة) بس
-  if(cs.showPrice) h+=`<h4>أعداد مخالفات الأسعار</h4><div class="card"><table class="pricetbl">${th(['م','نوع المخالفة','القسم','عدد المخالفات'])}${priceRowsHtml}<tr class="tot"><td>${priceN+1}</td><td></td><td>الإجمالي</td><td>${cs.priceGrandTotal}</td></tr>${cs.codesValue>0?`<tr><td></td><td class="grp">قيمة الأكواد (ج.م)</td><td></td><td>${money(cs.codesValue)}</td></tr>`:''}</table></div>
+  if(cs.showPrice) h+=`<h4>أعداد مخالفات الأسعار</h4><div class="card"><table class="pricetbl">${th(['م','نوع المخالفة','القسم','عدد المخالفات','القيمة (ج.م)'])}${priceRowsHtml}<tr class="tot"><td>${priceN+1}</td><td></td><td>الإجمالي</td><td>${cs.priceGrandTotal}</td><td>${cs.priceGrandValue>0?money(cs.priceGrandValue):'—'}</td></tr></table></div>
   <h4>أعداد مخالفات أدوات العرض ووسائل العرض</h4><div class="card"><table>${th(['النوع','العدد','قيمة القطعة','الإجمالي'])}${cs.display.map(d=>`<tr><td>${esc(d.label)}</td><td>${d.count}</td><td>${money(d.pieceValue)}</td><td>${money(d.total)}</td></tr>`).join('')}<tr class="tot"><td>الإجمالي</td><td>${cs.displayTotalCount}</td><td></td><td>${money(cs.displayTotalValue)}</td></tr></table></div>`;
   (cs.structure||[]).forEach(b=>{
     const neg=d=>d<0?' style="color:#c8102e;font-weight:700"':'';
@@ -775,9 +796,12 @@ async function getMedia(r,p){
   if(MEDIA.has(p.id)) return MEDIA.get(p.id);
   const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
   let blob=null; const why=[];
-  try{   // رابط مؤقت من وظيفة swift-worker (Supabase لو لسه ما اتنقلش، أو Backblaze)
-    const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
-    const res=await fetch(j.url); if(res.ok) blob=await res.blob(); else why.push('التخزين رد '+res.status);
+  if(!CFG.b2){   // الوسائط كلها على Supabase Storage
+    try{ const res=await retryTransient(()=>api(`/storage/v1/object/authenticated/${CFG.bucket}/${key}`,{raw:true})); blob=await res.blob(); MEDIA.set(p.id,blob); return blob }
+    catch(e){ throw {code:e&&e.code,msg:'media: Supabase '+(e&&e.code!=null?e.code:'')} } }
+  try{   // B2 (احتياطي أثناء النقل بس: CFG.b2=true)
+    const j=await retryTransient(()=>api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}}));
+    const res=await retryTransient(async()=>{ const x=await fetch(j.url); if(x.status>=500||x.status===429) throw {code:x.status}; return x }); if(res.ok) blob=await res.blob(); else why.push('التخزين رد '+res.status+(res.status===403?' (الرابط انتهى؟)':''));
   }catch(e){ if(e&&e.code===410) throw e;   // 410 = الملف اتأرشف (عدّت 30 يوم)
     why.push('الوظيفة '+(e&&e.code!=null?e.code:'')+(e&&e.msg?' '+String(e.msg).slice(0,40):'')) }
   if(!blob){  // التقارير القديمة لسه على Supabase
@@ -786,17 +810,44 @@ async function getMedia(r,p){
   }
   MEDIA.set(p.id,blob); return blob;
 }
+// إعادة محاولة للأخطاء المؤقتة (شبكة / 429 / 5xx / الوظيفة بتصحى): كانت أول فشلة بتتحوّل لـ «غير متاحة»
+async function retryTransient(fn,tries=3){ let last;
+  for(let i=0;i<tries;i++){ try{ return await fn() }catch(e){ last=e; const c=e&&e.code;
+    if(c===410||c===404||c===401||c===403||c===400) throw e;   // أخطاء دائمة: ماتتعادش
+    await new Promise(r=>setTimeout(r,500*Math.pow(2,i))) } }
+  throw last }
 // ── عرض الصور: رابط مؤقت مباشرة في <img> (المتصفح بيحمّل ويخزّن لوحده) + تحميل كسول للي قرّب من الشاشة بس ──
-const URLS=new Map();   // photoId -> {url,t}  (الرابط المؤقت بيتخزّن 4 دقايق)
+const URLS=new Map();   // storagePath -> {url,t}
 let _act=0; const _q=[];
 function limit(fn){return new Promise((res,rej)=>{_q.push(()=>fn().then(res,rej)); pump()})}
 function pump(){while(_act<8&&_q.length){_act++; const f=_q.shift(); f().finally(()=>{_act--; pump()})}}
+// مسار الملف على التخزين: هو مفتاح الكاش (الرابط الموقّع بيتغيّر، المسار لأ)
+const mediaKey=(R,p)=>`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
+const URL_TTL=50*60*1000;   // السيرفر بيدّي رابط 60 دقيقة، إحنا بنستخدمه 50 بس
+const fresh=c=>c&&Date.now()-c.t<URL_TTL;
+// طلب واحد لكل التقرير (get_many، لحد 100 مسار في الطلب) بدل طلب لكل صورة
+async function prefetchUrls(r){
+  const keys=[]; document.querySelectorAll('[data-media]').forEach(n=>{
+    const R=(n.dataset.own&&REPORTS.find(x=>x.id===n.dataset.own))||r;
+    const k=mediaKey(R,{id:n.dataset.media,ext:n.dataset.ext});
+    if(n.dataset.ext!=='mp4'&&!fresh(URLS.get(k))) keys.push(k) });
+  const uniq=[...new Set(keys)];
+  for(let i=0;i<uniq.length;i+=100){ const chunk=uniq.slice(i,i+100);
+    try{ const j=await retryTransient(()=>api('/functions/v1/swift-worker',{method:'POST',body:{action:'get_many',paths:chunk}}));
+      const u=(j&&j.urls)||{}; chunk.forEach(k=>{ if(u[k]) URLS.set(k,{url:u[k],t:Date.now()}) }) }
+    catch(e){ /* بنرجع للطلب الفردي في getMediaUrl */ } } }
+let _pre=Promise.resolve();
 async function getMediaUrl(r,p){
-  const c=URLS.get(p.id); if(c&&Date.now()-c.t<240000) return c.url;
-  const R=p._own||r; const key=`${R.inspector_id}/${R.id}/${p.id}.${p.ext||'jpg'}`;
-  const j=await api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}});
+  const R=p._own||r; const key=mediaKey(R,p);
+  await _pre;
+  const c=URLS.get(key); if(fresh(c)) return c.url;
+  let j;
+  try{ j=await retryTransient(()=>api('/functions/v1/swift-worker',{method:'POST',body:{action:'get',path:key}})) }
+  catch(e){ if(e&&(e.code===410||e.code===404)) throw e;
+    j=await retryTransient(()=>api(`/storage/v1/object/sign/${CFG.bucket}/${key}`,{method:'POST',body:{expiresIn:3600}}));
+    if(j&&j.signedURL) j={url:CFG.url+(j.signedURL.startsWith('/storage/v1')?'':'/storage/v1')+j.signedURL} }
   if(!j||!j.url) throw {msg:'مفيش رابط'};
-  URLS.set(p.id,{url:j.url,t:Date.now()}); return j.url;
+  URLS.set(key,{url:j.url,t:Date.now()}); return j.url;
 }
 let _mediaWhy=false;
 async function showMedia(r,n){
@@ -804,9 +855,9 @@ async function showMedia(r,n){
   const p={id:n.dataset.media,ext:n.dataset.ext,_own:n.dataset.own?REPORTS.find(x=>x.id===n.dataset.own):null};
   const viaBlob=async()=>{   // الطريقة القديمة: تقارير قديمة على Supabase أو الرابط المباشر فشل
     try{const blob=await getMedia(r,p); const u=URL.createObjectURL(blob);
-      n.innerHTML=p.ext==='mp4'?`<video src="${u}" controls preload="metadata"></video>`:`<img src="${u}" data-act="zoom" data-url="${u}">`}
-    catch(e){ n.textContent=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':'غير متاحة';
-      if(!_mediaWhy){_mediaWhy=true; toast('تعذّر تحميل بعض الملفات: '+String((e&&e.msg)||'').replace(/^media: /,''),true)} }
+      n.innerHTML=p.ext==='mp4'?`<video src="${u}" controls preload="metadata"></video>`:`<img src="${u}" loading="lazy" decoding="async" alt="صورة المخالفة" data-act="zoom" data-url="${u}">`}
+    catch(e){ const gone=e&&(e.code===404||e.code===400); n.innerHTML=(e&&e.code===410)?'مؤرشفة (الأدمن يسترجعها)':gone?'<span class="muted">ملف قديم، لم يعد متاحًا</span>':'غير متاحة <button type="button" class="alt" data-act="retryMedia" style="padding:2px 8px;font-size:12px">إعادة المحاولة</button>'; n.title=String((e&&e.msg)||'');
+      if(!_mediaWhy&&!gone){_mediaWhy=true; toast('تعذّر تحميل بعض الملفات: '+String((e&&e.msg)||'').replace(/^media: /,''),true)} }
   };
   if(MEDIA.has(p.id)||p.ext==='mp4') return viaBlob();
   try{
@@ -822,7 +873,10 @@ function hydrateMedia(r){
   if(_io) _io.disconnect();
   _mediaWhy=false;
   const nodes=[...document.querySelectorAll('[data-media]')];
-  _io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){_io.unobserve(e.target); limit(()=>showMedia(r,e.target))}})},{rootMargin:'900px 0px'});
+  _pre=prefetchUrls(r).catch(()=>{});
+  // لما صورة تقرّب من الشاشة نحمّل معاها الـ 4 اللي بعدها
+  _io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){_io.unobserve(e.target); const i=nodes.indexOf(e.target);
+    [e.target,...nodes.slice(i+1,i+5)].forEach(n=>{ if(!n.dataset.done) limit(()=>showMedia(r,n)) })}})},{rootMargin:'900px 0px'});
   nodes.forEach(n=>_io.observe(n));
 }
 // قبل الطباعة/PDF: لازم كل الصور تتحمّل (التحميل الكسول بيحمّل اللي قرّب بس)
@@ -839,7 +893,7 @@ async function review(action,note,only){
   const targets=parts.filter(p=>(!only||only.includes(p.id))&&(FROM[action]||[]).includes(p.status));
   if(!targets.length) throw {msg:'مفيش جزء مناسب للإجراء ده (حالته اتغيّرت)'};
   for(const p of targets) await api('/rest/v1/rpc/review_report',{method:'POST',body:{p_id:p.id,p_action:action,p_note:note||null}});
-  REPORTS=await api('/rest/v1/reports?select=*&order=updated_at.desc&limit=300');
+  REPORTS=await fetchReports();
 }
 async function doApprove(a){ try{ await review(a); toast('تم'); render() }catch(e){ el('rerr').textContent=errTxt(e) } }
 async function doReturnArea(){
@@ -892,9 +946,8 @@ function csvReport(){
   b.viol.forEach(v=>rows.push([v.unit&&v.unit.name,v.category&&v.category.name,v.no,v.control.text,v.weight,v.itemDeducted,v.weight-v.itemDeducted,v.group?v.group.name:'',v.finding.violationNote||'',v.photos.length]));
   if(b.census.length){rows.push([],['ضوابط الحصر'],['القسم','الكاتجري','الضابط','التفاصيل','الكمية','سعر الوحدة','الإجمالي','حالة بيانات السعر']);b.census.forEach(c=>rows.push([c.unitName,c.categoryName,c.controlText,c.nums.join('+'),c.total,c.unitPrice??'',c.amount??'',c.hasPrice?'متاح':'غير متزامن/غير متاح']))}
   {const cs=b.cs; if(cs.hasAnything) rows.push([],['الحصر المجمّع']);
-    if(cs.showPrice){ rows.push(['أعداد مخالفات الأسعار'],['م','نوع المخالفة','القسم','عدد المخالفات']); let pn=0;
-    cs.priceByType.forEach(t=>t.sections.forEach((x,i)=>{ pn++; rows.push([pn,i===0?t.type:'',x.label,x.count>0?x.count:'']) })); rows.push([pn+1,'','الإجمالي',cs.priceGrandTotal]);
-    if(cs.codesValue>0) rows.push(['','قيمة الأكواد (ج.م)','',money(cs.codesValue)]);
+    if(cs.showPrice){ rows.push(['أعداد مخالفات الأسعار'],['م','نوع المخالفة','القسم','عدد المخالفات','القيمة (ج.م)']); let pn=0;
+    cs.priceByType.forEach(t=>t.sections.forEach((x,i)=>{ pn++; rows.push([pn,i===0?t.type:'',x.label,x.count>0?x.count:'',x.value>0?money(x.value):'']) })); rows.push([pn+1,'','الإجمالي',cs.priceGrandTotal,cs.priceGrandValue>0?money(cs.priceGrandValue):'']);
     rows.push([],['أعداد مخالفات أدوات العرض ووسائل العرض'],['النوع','العدد','قيمة القطعة','الإجمالي']);
     cs.display.forEach(d=>rows.push([d.label,d.count,money(d.pieceValue),money(d.total)])); rows.push(['الإجمالي',cs.displayTotalCount,'',money(cs.displayTotalValue)]); }
     (cs.structure||[]).forEach(b=>{rows.push([],['حصر هيكل الفرع — '+b.unitName],['هيكل الفرع'].concat(b.groups.map(g=>g.name),['الإجمالي']),['العدد'].concat(b.groups.map(g=>g.planned),[b.totalPlanned]),['العدد الفعلي'].concat(b.groups.map(g=>g.actual),[b.totalActual]),['عجز / زيادة الهيكل'],['الفرق'].concat(b.groups.map(g=>g.diff),[b.totalDiff]),['عجز داخل الفترة'].concat(b.groups.map(g=>g.within),[b.within]),['عجز خارج الفترة'].concat(b.groups.map(g=>g.outside),[b.outside]),['الحالة',b.statusText],[b.summaryTitle].concat(b.summaryLines.length?b.summaryLines:['لا يوجد عجز خارج الفترة']))});
@@ -1099,6 +1152,9 @@ async function hideCtl(id){const k=byId(C.controls,id);if(!k||!confirm(`تأكي
 // الرسائل (شات بين المستخدمين)
 // نص فقط حاليًا. التسليم بالـ polling (٣ ثواني والشات مفتوح، ٣٠ ثانية في باقي الصفحات). الأمان على السيرفر بـ RLS.
 const TEAM='team';
+const CHAT_ROLES=['INSPECTOR','AREA_MANAGER','DEPT_MANAGER'];   // الشات للمراقب ومدير المنطقة ونائب مدير الإدارة بس
+const chatAllowed=()=>!!ME&&CHAT_ROLES.includes(ME.role);
+const CHAT_MAX_VIDEO=25*1024*1024;
 const CH={msgs:[],auto:{},reads:{},cursor:'1970-01-01T00:00:00Z',q:'',tick:0,busy:false,ens:new Set()};
 const CB=new Map(); // مسار المرفق → blob URL (كاش)
 function resetChat(){CH.msgs=[];CH.auto={};CH.cursor='1970-01-01T00:00:00Z';CH.reads={};CH.q='';CH.ens=new Set();CB.forEach(u=>URL.revokeObjectURL(u));CB.clear()}
@@ -1118,7 +1174,8 @@ function addMsg(r){
 }
 function chatExpire(){const now=Date.now();CH.msgs=CH.msgs.filter(m=>{const h=CH.auto[m.cid];return !h||m.at>=now-h*36e5})}
 const pname=id=>NAMES[id]||'مستخدم محذوف';
-async function chatSync(){ return;   // الشات متوقف
+async function chatSync(){
+  if(!chatAllowed()) return;
 
   if(CH.busy||!ME||!S) return; CH.busy=true;
   try{
@@ -1147,6 +1204,7 @@ async function chatMarkRead(){
   }catch(e){}
 }
 async function sendChat(){
+  if(!chatAllowed()) return;
   const inp=el('cin'); if(!inp) return;
   const t=inp.value.trim(); if(!t) return;
   const btn=el('csend'); inp.value=''; btn.disabled=true;
@@ -1196,8 +1254,22 @@ function prepPhoto(file){
     img.src=u;
   });
 }
+async function sendChatVideo(file){
+  if(file.size>CHAT_MAX_VIDEO){ toast('الفيديو أكبر من 25 ميجا',true); return }
+  const id=uuid(), path=TEAM+'/'+id+'.mp4';
+  toast('جاري إرسال الفيديو...');
+  try{
+    await uploadChat(path,new Blob([file],{type:'video/mp4'}));
+    const rows=await api('/rest/v1/chat_messages?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},
+      body:{id,conversation_id:TEAM,sender_id:ME.id,receiver_id:null,type:'VIDEO',media_path:path}});
+    if(rows&&rows[0]) addMsg(rows[0]);
+    chatUI(true); toast('اتبعت');
+  }catch(e){ toast(errTxt(e),true) }
+}
 async function sendChatPhoto(file){
   if(!file) return;
+  if(!chatAllowed()) return;
+  if(file.type&&file.type.startsWith('video/')) return sendChatVideo(file);
   const id=uuid(), path=TEAM+'/'+id+'.jpg';
   toast('جاري إرسال الصورة...');
   try{
@@ -1215,7 +1287,7 @@ function chatView(){
   return `<div class="card" style="padding:0;overflow:hidden"><div class="row chead"><div class="av" style="width:38px;height:38px">👥</div>
     <div class="grow"><b>مجموعة العمل</b><div class="muted">${n} عضو · التعليمات والرسائل الرسمية للفريق كله</div></div></div>
     <div id="cban"></div><div class="cmsgs" id="cmsgs"></div>
-    <div class="cbar"><button class="alt att" data-act="chatPick" title="إرسال صورة">📷</button><input type="file" id="cfile" accept="image/*" hidden><textarea id="cin" rows="1" placeholder="اكتب رسالة للفريق"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
+    <div class="cbar"><button class="alt att" data-act="chatPick" title="إرسال صورة أو فيديو">📷</button><input type="file" id="cfile" accept="image/*,video/*" hidden><textarea id="cin" rows="1" placeholder="اكتب رسالة للفريق"></textarea><button id="csend" data-act="chatSend">إرسال</button></div></div>`;
 }
 function chatUI(forceBottom){
   if(!ME) return;
@@ -1243,7 +1315,7 @@ function chatUI(forceBottom){
   hydrateChat();
   if(atBottom) box.scrollTop=box.scrollHeight;
 }
-setInterval(()=>{ if(!ME||!S||document.hidden) return; CH.tick++; if(view.tab==='chat'||CH.tick%10===0) chatSync() },3000);
+setInterval(()=>{ if(!ME||!S||document.hidden||!chatAllowed()) return; CH.tick++; if(view.tab==='chat'||CH.tick%10===0) chatSync() },3000);
 
 // الأحداث
 const ACT={
@@ -1273,6 +1345,7 @@ const ACT={
   retForm:()=>modal(`<h3>سبب الإعادة</h3>${retPartSel()}<textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:async()=>{toast("جاري تجهيز الصور للطباعة...");await loadAllMedia();const t=el("toast");t.style.display="none";clearTimeout(toast.h);setTimeout(()=>window.print(),150)}, csv:()=>csvReport(), zip:()=>doZip(),
   playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,view.b.viol.flatMap(v=>v.photos).find(p=>p.id===d.vid)||{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
+  retryMedia:(d,b)=>{ const n=b.closest('[data-media]'); if(!n) return; { const r0=curReport(); const R=(n.dataset.own&&REPORTS.find(x=>x.id===n.dataset.own))||r0; if(R) URLS.delete(mediaKey(R,{id:n.dataset.media,ext:n.dataset.ext})) } MEDIA.delete(n.dataset.media); delete n.dataset.done; n.textContent='جاري التحميل…'; const r=curReport(); if(r) limit(()=>showMedia(r,n)) },
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),
   vuPreset:d=>{const p=VU_PRESETS[+d.i]; if(!p) return; const all=vuUnits().map(u=>u.id); VU.sel=new Set(p[1]===null?all:all.filter(x=>p[1].includes(x))); vuRender()},

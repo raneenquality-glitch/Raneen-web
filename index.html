@@ -278,6 +278,8 @@ const CENSUS_PFX='RQ_CENSUS_V1:', MAINT_CTL='__maintenance_census__', MAINT_PFX=
 // جدول مخالفات الأسعار على مستوى القسم (نفس تسمية الإكسل ونفس منطق التطبيق)
 // كل قسم بيجمّع نفس القسم من القوالب التلاتة (أوف لاين / ديجيتال / زايد)
 const PRICE_SECTIONS=[[['home_tools','zayed_home_tools'],'الأدوات المنزلية'],[['toys_kids'],'ألعاب الأطفال'],[['furnishings','digital_furnishings','zayed_furnishings'],'المفروشات'],[['electrical','digital_electricity','zayed_electricity'],'الكهرباء'],[['digital_furniture'],'الأثاث']];
+// الصيانة والتكييفات مش بتظهر في جدول مخالفات الأسعار
+const PRICE_EXCLUDED=['maintenance','ac_maintenance','zayed_maintenance','zayed_air_conditioning'];
 const PRICE_TYPES=[['عدم وجود شيلف',['in_no_shelf','pricing1']],['عدم تطابق الشيلفات',['in_mismatch','pricing3']],['التكويد',['in_no_code','pricing10','pricing11','pricing12']],['التسعير',['in_no_price','pricing13','pricing14','pricing15']],['صاينات (سعر - عرض)',['in_stand_offer','in_stand_price','in_partial_damage','pricing2','pricing4','pricing5','pricing6','pricing7','pricing8','pricing9']]];
 const STRUCT_CTL='__structure_census__', STRUCT_PFX='RQ_STRUCTURE_CENSUS_V1:';
 const STRUCT_GROUPS=[['operations','إدارة التشغيل'],['services','الخدمات'],['customer_cashier','خدمة العملاء والكاشير'],['security','الأمن'],['cameras','الكاميرات'],['receiving','إدارة الاستلامات']];
@@ -330,7 +332,7 @@ function buildCensusSummary(d,na,unitIds,units){
     return {unitId:f.unitId,unitName:name,isAc,title:isAc?'حصر صيانة التكييفات':'حصر الصيانة',rows,violated:rows.filter(r=>r.isViolation).length,shown:rows.filter(r=>r.isViolation||r.hasDetails)};
   }).filter(Boolean).sort((a,b)=>(order[a.unitId]??999)-(order[b.unitId]??999));
   const order0={}; units.forEach((u,i)=>order0[u.id]=i);
-  const pSecs=PRICE_SECTIONS.concat(Object.keys(perUnit).filter(u=>!PRICE_SECTIONS.some(x=>x[0].includes(u))).sort((a,b)=>(order0[a]??999)-(order0[b]??999)).map(u=>{ const x=units.find(y=>y.id===u); return [[u],x?x.name:u] }));
+  const pSecs=PRICE_SECTIONS.concat(Object.keys(perUnit).filter(u=>!PRICE_SECTIONS.some(x=>x[0].includes(u))&&!PRICE_EXCLUDED.includes(u)).sort((a,b)=>(order0[a]??999)-(order0[b]??999)).map(u=>{ const x=units.find(y=>y.id===u); return [[u],x?x.name:u] }));
   const priceByType=PRICE_TYPES.map(([type,keys])=>{ const sections=pSecs.map(([ids,label])=>({unitId:ids[0],label,count:keys.reduce((a,k)=>a+ids.reduce((b,u)=>b+((perUnit[u]&&perUnit[u][k])||0),0),0)})); return {type,sections,subtotal:sections.reduce((a,x)=>a+x.count,0)} });
   const priceGrandTotal=priceByType.reduce((a,t)=>a+t.subtotal,0);
   // الظهور حسب الجهة: الحصر بيتحسب من الوحدات الظاهرة للمستخدم (مشاهد الإدارة = وحداته، أدوار الإدارة = كل الوحدات)

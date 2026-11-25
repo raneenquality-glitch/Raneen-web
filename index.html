@@ -88,7 +88,7 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
 .cvid{display:flex;align-items:center;justify-content:center;width:200px;height:120px;border-radius:12px;background:#1b1d2a;color:#fff;font-weight:700;cursor:pointer}
 .cbar .att{padding:10px 12px;font-size:18px}
 .cban{background:var(--acc-l);color:#5a3a00;padding:6px 12px;font-size:13px}
-@media print{header.top,nav.tabs,.noprint,button{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
+@media print{header.top,nav.tabs,.noprint,button,#toast{display:none!important}.prog{border:1px solid #999}body{background:#fff;color:#000;font-size:11pt}main{max-width:none;padding:0}.card{break-inside:avoid;border-color:#ccc;box-shadow:none}.thumb{width:150px;height:112px}.unitbar{break-after:avoid}}
 
 .snd{font-size:12px;font-weight:800;color:var(--pri);margin-bottom:2px}
 /* شكل التقرير = نفس PDF التطبيق: كارت بيانات، 3 كروت متوسطات، جدول درجات، مخالفات، حصر، الحصر المجمّع، ملاحظات الزيارة في الآخر */
@@ -1271,7 +1271,7 @@ const ACT={
   eSave:()=>eSave(),
   retAreaForm:()=>modal(`<h3>سبب الإعادة لمدير المنطقة</h3><textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturnArea">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
   retForm:()=>modal(`<h3>سبب الإعادة</h3>${retPartSel()}<textarea id="rnote" rows="3" placeholder="سبب الإعادة (اختياري)"></textarea><div class="err" id="rerr2"></div><button data-act="doReturn">إعادة</button> <button class="alt" data-act="close">إلغاء</button>`),
-  doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:async()=>{toast("جاري تجهيز الصور للطباعة...");await loadAllMedia();window.print()}, csv:()=>csvReport(), zip:()=>doZip(),
+  doReturn:()=>doReturn(), doReturnArea:()=>doReturnArea(), print:async()=>{toast("جاري تجهيز الصور للطباعة...");await loadAllMedia();const t=el("toast");t.style.display="none";clearTimeout(toast.h);setTimeout(()=>window.print(),150)}, csv:()=>csvReport(), zip:()=>doZip(),
   playVid:async d=>{toast('جاري تحميل الفيديو...');try{const blob=await getMedia(view.b.r,view.b.viol.flatMap(v=>v.photos).find(p=>p.id===d.vid)||{id:d.vid,ext:'mp4'});modal(`<video src="${URL.createObjectURL(blob)}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast(errTxt(e),true)}},
   zoom:d=>modal(`<img class="zoom" src="${d.url}"><p><button class="alt" data-act="close">إغلاق</button></p>`),
   userForm:d=>userForm(d.id), saveUser:d=>saveUser(d.id),

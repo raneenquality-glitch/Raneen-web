@@ -112,6 +112,7 @@ nav.tabs button:hover:not(.on){background:var(--pri-l)}
 
 /* تحسينات شكل وأداء */
 header.top{position:sticky;top:0;z-index:20;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.sq{padding:14px 14px 6px}.sq-h{display:flex;align-items:center;justify-content:space-between;font-size:16px}.sq-n{background:var(--pri);color:#fff;border-radius:20px;min-width:24px;text-align:center;padding:1px 9px;font-size:13px;font-weight:700}.sq-sub{color:var(--gray);font-size:12.5px;margin:2px 0 10px}.sq-v{background:#fafafa;border:1px solid var(--line);border-inline-start:4px solid var(--pri);border-radius:12px;padding:10px 12px;margin:0 0 10px}.sq-t{font-size:15.5px;font-weight:700}.sq-m{color:var(--gray);font-size:12.5px;margin:2px 0 6px}.sq-r{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}.sq-w1{flex:1;min-width:0}.sq-who{font-size:14.5px;font-weight:600}.sq-role{color:var(--gray);font-size:12px}.sq-c{border-radius:20px;padding:3px 10px;font-size:12px;white-space:nowrap;font-weight:600}.sq-p{background:var(--acc-l);color:#b45309}.sq-w{background:#fde8e8;color:var(--bad)}.sq-x{border:1px solid var(--pri);background:#fff;color:var(--pri);border-radius:10px;padding:6px 10px;font-size:13px;cursor:pointer}
 .card{transition:box-shadow .18s,border-color .18s,transform .18s}
 .click:hover{transform:translateY(-1px)}
 button:active:not(:disabled){transform:scale(.98)}
@@ -571,12 +572,12 @@ async function loadAll(){
 function render(){
   document.body.classList.remove('loginbg');
   const admin=ME.role==='ADMIN';
-  const tabs=[['reports','التقارير']].concat(chatAllowed()?[['chat','الشات']]:[]).concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
+  const tabs=[['reports','التقارير']].concat(seatsAllowed()?[['seats','المقاعد']]:[]).concat(chatAllowed()?[['chat','الشات']]:[]).concat(admin?[['users','المستخدمون'],['branches','الفروع'],['catalog','الأقسام والضوابط']]:[]);
   const on=view.tab==='unit'?'catalog':view.tab==='report'?'reports':view.tab;
-  el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الرقابة والجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''} · نسخة 26-11 ج</small>
+  el('app').innerHTML=`<header class="top"><h1>رنين — إدارة الرقابة والجودة</h1><small>${esc(ME.name)} · ${ROLE_AR[ME.role]||''} · نسخة 26-11 د</small>
     <button class="alt" data-act="refresh">تحديث</button><button class="alt" data-act="logout">خروج</button></header>
-    <nav class="tabs">${tabs.map(t=>`<button class="${on===t[0]?'on':''}" data-act="tab" data-id="${t[0]}">${t[1]}${t[0]==='chat'?'<span id="cbadge" class="cbadge" style="display:none"></span>':''}</button>`).join('')}</nav>
-    <main>${view.tab==='reports'?reportsView():view.tab==='chat'?chatView():view.tab==='report'?reportView():view.tab==='users'?usersView():view.tab==='branches'?branchesView():view.tab==='catalog'?catalogView():unitView()}</main>`;
+    <nav class="tabs">${tabs.map(t=>`<button class="${on===t[0]?'on':''}" data-act="tab" data-id="${t[0]}">${t[1]}${t[0]==='chat'?'<span id="cbadge" class="cbadge" style="display:none"></span>':''}${t[0]==='seats'&&seatVisits().length?`<span class="cbadge">${seatVisits().length}</span>`:''}</button>`).join('')}</nav>
+    <main>${view.tab==='reports'?reportsView():view.tab==='chat'?chatView():view.tab==='seats'?seatsPanel():view.tab==='report'?reportView():view.tab==='users'?usersView():view.tab==='branches'?branchesView():view.tab==='catalog'?catalogView():unitView()}</main>`;
   if(view.tab==='report') afterReport();
   if(view.tab==='chat'){ chatUI(); chatSync() }
   else chatUI();
@@ -633,15 +634,20 @@ function seatState(s){
   const L={SUBMITTED:'التقرير اتبعت (مرسل)',UNDER_REVIEW:'التقرير اتبعت (تحت المراجعة)',REVIEWED:'التقرير اتبعت (مراجَع)',RETURNED:'التقرير مرتجع للمراقب',DRAFT:'مسودة',FINAL_APPROVED:'معتمد نهائي'};
   return {t:L[st]||st,cancel:false,done:st==='FINAL_APPROVED'};
 }
+function seatsAllowed(){ return ['AREA_MANAGER','DEPT_MANAGER'].includes(ME.role) }
+function seatVisits(){
+  const groups={}; SEATS.forEach(s=>{ if(!seatState(s).cancel) return; const k=[s.branch_id,s.template_id,s.visit_month,s.visit_number].join('|'); (groups[k]=groups[k]||[]).push(s) });
+  return Object.values(groups);
+}
 function seatsPanel(){
-  if(!['AREA_MANAGER','DEPT_MANAGER'].includes(ME.role)) return '';
-  const groups={}; SEATS.forEach(s=>{ const k=[s.branch_id,s.template_id,s.visit_month,s.visit_number].join('|'); (groups[k]=groups[k]||[]).push(s) });
-  const vis=Object.values(groups).filter(g=>!g.every(s=>seatState(s).done));
-  if(!vis.length) return '';
+  if(!seatsAllowed()) return '';
+  const vis=seatVisits();
+  if(!vis.length) return `<div class="card noprint sq"><div class="sq-h"><b>🪑 المقاعد المحجوزة</b><span class="sq-n">0</span></div><div class="sq-sub">مفيش مقاعد محجوزة من غير تقرير دلوقتي.</div></div>`;
   vis.sort((a,b)=>String(b[0].visit_month).localeCompare(String(a[0].visit_month)));
-  return `<div class="card noprint"><b>🪑 المقاعد المحجوزة (${vis.length} زيارة)</b><div class="muted">كل المقاعد المحجوزة في الزيارات اللي لسه ماتعتمدتش. الإلغاء متاح بس للمقعد اللي ماأرسلش تقرير (أو تقريره مش موجود).</div>`+
-    vis.map(g=>{const s0=g[0]; return `<div style="margin-top:10px;border-top:1px solid #ddd;padding-top:6px"><b>${esc((byId(C.branches,s0.branch_id)||{}).name||s0.branch_id)}</b> · ${esc(templateLabel(s0.template_id))} · الزيارة ${s0.visit_number==='1'?'الأولى':'الثانية'} · ${esc(s0.visit_month)}`+
-      g.map(s=>{const st=seatState(s); return `<div class="row" style="margin-top:6px"><div class="grow">${SEAT_AR[s.seat]||s.seat} — ${esc(NAMES[s.inspector_id]||'مراقب')}<div class="muted">${esc(st.t)} · من ${fmtD(Date.parse(s.created_at))}</div></div>${st.cancel?`<button class="alt" data-act="seatCancel" data-id="${esc(s.id)}">إلغاء المقعد</button>`:''}</div>`}).join('')+`</div>`}).join('')+
+  const chipCls=st=>st.cancel&&st.t.startsWith('معلّق')?'sq-w':'sq-p';
+  return `<div class="card noprint sq"><div class="sq-h"><b>🪑 المقاعد المحجوزة</b><span class="sq-n">${vis.length}</span></div><div class="sq-sub">مقاعد لسه ماأرسلش عليها تقرير (أو تقريرها مش موجود)</div>`+
+    vis.map(g=>{const s0=g[0]; return `<div class="sq-v"><div class="sq-t">${esc((byId(C.branches,s0.branch_id)||{}).name||s0.branch_id)}</div><div class="sq-m">${esc(templateLabel(s0.template_id))} · الزيارة ${s0.visit_number==='1'?'الأولى':'الثانية'} · ${esc(s0.visit_month)}</div>`+
+      g.map(s=>{const st=seatState(s); return `<div class="sq-r"><div class="sq-w1"><div class="sq-who">${esc(NAMES[s.inspector_id]||'مراقب')}</div><div class="sq-role">${SEAT_AR[s.seat]||s.seat} · من ${fmtD(Date.parse(s.created_at))}</div></div><span class="sq-c ${chipCls(st)}">${esc(st.t.replace(/ \(.*\)/,''))}</span><button class="sq-x" data-act="seatCancel" data-id="${esc(s.id)}">إلغاء</button></div>`}).join('')+`</div>`}).join('')+
     `<div class="err" id="serr"></div></div>`;
 }
 async function seatCancel(id){
@@ -673,7 +679,7 @@ function reportsView(){
     <div class="card tile t-warn"><div class="big">${pend||cnt('SUBMITTED')+cnt('REVIEWED')}</div><div class="muted">${mgr?'تحتاج إجراء':'قيد المراجعة'}</div></div>
     <div class="card tile t-bad"><div class="big">${cnt('RETURNED')}</div><div class="muted">معادة للمراقب</div></div>
     <div class="card tile t-good"><div class="big">${cnt('FINAL_APPROVED')}</div><div class="muted">معتمدة نهائيًا</div></div></div>`;
-  return (ME.role==='VIEWER'?'':kp)+seatsPanel()+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
+  return (ME.role==='VIEWER'?'':kp)+`<div class="row wrap noprint" style="margin-bottom:10px">${mgr?`<button class="opt ${FILTER.pending?'on':''}" data-act="fpend" data-id="1">تحتاج إجراء</button><button class="opt ${FILTER.pending?'':'on'}" data-act="fpend" data-id="0">الكل</button>`:''}
     <input id="q" class="grow" placeholder="بحث بالفرع أو رقم التقرير أو المراقب" value="${esc(FILTER.q)}" style="margin:0;min-width:200px"></div>`
    +(list.length?list.map(r=>`<div class="card click" data-act="openReport" data-id="${esc(r.id)}"><div class="row"><b class="grow">${esc((byId(C.branches,r.branch_id)||{}).name||'فرع محذوف')}</b><span class="chip st-${r.status}">${ST_SHORT[r.status]||r.status}</span></div>
      <div class="muted">${esc(r.report_number)}${visitOf(r)?' · '+visitOf(r):''} · ${fmtD((r.data&&r.data.inspection&&r.data.inspection.visitDate)||Date.parse(r.updated_at))} · المراقب: ${esc(r._inspNames||NAMES[r.inspector_id]||'')}${r._waiting&&r._waiting.length?' · ⏳ في انتظار '+esc(r._waiting.map(w=>w.name).join('، ')):''}</div></div>`).join(''):'<p class="muted">مفيش تقارير.</p>');
@@ -1339,7 +1345,7 @@ const ACT={
   chatMedia:async d=>{try{toast('جاري التحميل...');const u=await chatBlob(d.p);
     modal(d.t==='VIDEO'?`<video src="${u}" controls autoplay style="width:100%;border-radius:8px"></video><p><button class="alt" data-act="close">إغلاق</button></p>`
       :`<img class="zoom" src="${u}"><p><button class="alt" data-act="close">إغلاق</button></p>`)}catch(e){toast('المرفق غير متاح (ممكن يكون انتهت مدته)',true)}},
-  tab:d=>{EDIT=null;view={tab:d.id};render()}, fpend:d=>{FILTER.pending=d.id==='1';render()},
+  tab:async d=>{EDIT=null;view={tab:d.id};render(); if(d.id==='seats'){ try{ SEATS=await api('/rest/v1/visit_seats?select=*'); await computeOpenSeats(); if(view.tab==='seats') render() }catch(e){} } }, fpend:d=>{FILTER.pending=d.id==='1';render()},
   openReport:d=>{EDIT=null;view={tab:'report',id:d.id};render();window.scrollTo(0,0)},
   approve:d=>doApprove(d.a), finalApprove:()=>doFinal(),
   seatCancel:d=>seatCancel(d.id),

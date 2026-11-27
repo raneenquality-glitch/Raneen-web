@@ -942,9 +942,10 @@ function csvReport(){
     if(cs.showPrice){ rows.push(['أعداد مخالفات الأسعار'],['م','نوع المخالفة','القسم','عدد المخالفات','القيمة (ج.م)']); let pn=0;
     cs.priceByType.forEach(t=>t.sections.forEach((x,i)=>{ pn++; rows.push([pn,i===0?t.type:'',x.label,x.count>0?x.count:'',x.value>0?money(x.value):'']) })); rows.push([pn+1,'','الإجمالي',cs.priceGrandTotal,cs.priceGrandValue>0?money(cs.priceGrandValue):'']);
     rows.push([],['أعداد مخالفات أدوات العرض ووسائل العرض'],['النوع','العدد','قيمة القطعة','الإجمالي']);
+    cs.price.filter(r=>/QR|SKU/.test(r.label)).forEach(r=>rows.push([r.label,r.money!=null?money(r.money):r.count]));
     cs.display.forEach(d=>rows.push([d.label,d.count,money(d.pieceValue),money(d.total)])); rows.push(['الإجمالي',cs.displayTotalCount,'',money(cs.displayTotalValue)]); }
     (cs.structure||[]).forEach(b=>{rows.push([],['حصر هيكل الفرع — '+b.unitName],['هيكل الفرع'].concat(b.groups.map(g=>g.name),['الإجمالي']),['العدد'].concat(b.groups.map(g=>g.planned),[b.totalPlanned]),['العدد الفعلي'].concat(b.groups.map(g=>g.actual),[b.totalActual]),['عجز / زيادة الهيكل'],['الفرق'].concat(b.groups.map(g=>g.diff),[b.totalDiff]),['عجز داخل الفترة'].concat(b.groups.map(g=>g.within),[b.within]),['عجز خارج الفترة'].concat(b.groups.map(g=>g.outside),[b.outside]),['الحالة',b.statusText],[b.summaryTitle].concat(b.summaryLines.length?b.summaryLines:['لا يوجد عجز خارج الفترة']))});
-    cs.maintenance.forEach(bl=>{rows.push([],[bl.title+' — '+bl.unitName],['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند']); bl.shown.forEach(m=>rows.push([m.itemWithCount,m.state,m.problem,m.faultDate,m.ticket,m.escalation,m.status]))});
+    cs.maintenance.forEach(bl=>{rows.push([],[bl.title+' — '+bl.unitName],['البند','الحالة','المشكلة','تاريخ العطل','التيكت','التصعيد','حالة البند','عدد المرفقات']); bl.shown.forEach(m=>rows.push([m.itemWithCount,m.state,m.problem,m.faultDate,m.ticket,m.escalation,m.status,(m.photos||[]).length||'']))});
     rows.push([],['ملاحظات الزيارة العامة'],[(b.d.inspection||{}).notes||'لا توجد ملاحظات عامة مسجلة.'])}
   download(new Blob(['\uFEFF'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`Raneen_${b.r.report_number}.csv`);
 }
